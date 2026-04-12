@@ -1,0 +1,331 @@
+// Package store manages encrypted memory entries on IPFS.
+//
+// It provides a high-level API for writing, reading, and querying
+// memory entries. Each entry is encrypted with AES-256-GCM and pinned
+// to IPFS. An encrypted index tracks all entries for efficient querying.
+package store
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/atvirokodosprendimai/agent-memory/internal/config"
+	"github.com/atvirokodosprendimai/agent-memory/internal/crypto"
+	"github.com/atvirokodosprendimai/agent-memory/internal/ipfs"
+)
+
+// EntryType defines the kind of memory entry.
+type EntryType string
+
+const (
+	TypeDecision   EntryType = "decision"
+	TypeLearning   EntryType = "learning"
+	TypeTrace      EntryType = "trace"
+	TypeObservation EntryType = "observation"
+	TypeBlocker    EntryType = "blocker"
+	TypeContext    EntryType = "context"
+)
+
+// Entry is a single memory record.
+type Entry struct {
+	ID        string            `json:"id"`
+	Type      EntryType         `json:"type"`
+	Source    string            `json:"source"`
+	Timestamp string            `json:"timestamp"`
+	Tags      []string          `json:"tags"`
+	Content   string            `json:"content"`
+	Metadata  map[string]any    `json:"metadata,omitempty"`
+	Version   int               `json:"version"`
+}
+
+// IndexEntry is a lightweight entry in the encrypted index.
+type IndexEntry struct {
+	ID             string   `json:"id"`
+	CID            string   `json:"cid"`
+	Type           string   `json:"type"`
+	Tags           []string `json:"tags"`
+	Timestamp      string   `json:"timestamp"`
+	Source         string   `json:"source"`
+	ContentPreview string   `json:"content_preview"`
+}
+
+// Index is the top-level index structure.
+type Index struct {
+	Version int          `json:"version"`
+	Updated string       `json:"updated"`
+	Entries []IndexEntry `json:"entries"`
+}
+
+// Store manages encrypted memory entries on IPFS.
+type Store struct {
+	cfg   *config.Config
+	keys  *config.Keys
+	ipfs  *ipfs.Client
+}
+
+// New creates a new Store from config and secret.
+func New(cfg *config.Config, secret string) (*Store, error) {
+	keys, err := cfg.GetKeys(secret)
+	if err != nil {
+		return nil, fmt.Errorf("deriving keys: %w", err)
+	}
+	client := ipfs.NewClient(cfg.IPFSAddr)
+	return &Store{cfg: cfg, keys: keys, ipfs: client}, nil
+}
+
+// Close releases resources.
+func (s *Store) Close() error {
+	return s.ipfs.Close()
+}
+
+// Write creates an encrypted memory entry and pins it to IPFS.
+func (s *Store) Write(entryType EntryType, source string, tags []string, content string, metadata map[string]any) (*Entry, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Normalize tags
+	normalizedTags := normalizeTags(tags)
+
+	entry := &Entry{
+		Type:      entryType,
+		Source:    source,
+		Timestamp: now,
+		Tags:      normalizedTags,
+		Content:   content,
+		Metadata:  metadata,
+		Version:   1,
+	}
+
+	// Compute deterministic ID
+	entry.ID = s.computeID(entry)
+
+	// Serialize and encrypt
+	plainJSON, err := json.Marshal(entry)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling entry: %w", err)
+	}
+
+	ciphertext, err := crypto.Seal(s.keys.EncryptionKey, plainJSON)
+	if err != nil {
+		return nil, fmt.Errorf("encrypting entry: %w", err)
+	}
+
+	// Pin to IPFS
+	cid, err := s.ipfs.Add(ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("pinning to IPFS: %w", err)
+	}
+
+	// Update index
+	if err := s.addToIndex(entry, cid); err != nil {
+		// Entry is pinned but index failed — not fatal, but warn
+		fmt.Printf("Warning: entry pinned (CID: %s) but index update failed: %v\n", cid, err)
+	}
+
+	return entry, nil
+}
+
+// Read retrieves and decrypts memory entries matching the given filters.
+func (s *Store) Read(filter Filter) ([]*Entry, error) {
+	idx, err := s.loadIndex()
+	if err != nil {
+		return nil, fmt.Errorf("loading index: %w", err)
+	}
+
+	var results []*Entry
+	for i := range idx.Entries {
+		if !filter.Match(&idx.Entries[i]) {
+			continue
+		}
+		entry, err := s.getEntry(idx.Entries[i].CID)
+		if err != nil {
+			fmt.Printf("Warning: failed to decrypt entry %s: %v\n", idx.Entries[i].ID, err)
+			continue
+		}
+		results = append(results, entry)
+		if filter.Limit > 0 && len(results) >= filter.Limit {
+			break
+		}
+	}
+
+	// Sort by timestamp descending (newest first)
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Timestamp > results[j].Timestamp
+	})
+
+	return results, nil
+}
+
+// List returns index entries matching the filter (no decryption needed).
+func (s *Store) List(filter Filter) ([]IndexEntry, error) {
+	idx, err := s.loadIndex()
+	if err != nil {
+		return nil, fmt.Errorf("loading index: %w", err)
+	}
+
+	var results []IndexEntry
+	for _, ie := range idx.Entries {
+		if filter.Match(&ie) {
+			results = append(results, ie)
+		}
+		if filter.Limit > 0 && len(results) >= filter.Limit {
+			break
+		}
+	}
+
+	// Sort by timestamp descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Timestamp > results[j].Timestamp
+	})
+
+	return results, nil
+}
+
+// Pins returns all CIDs pinned by this store.
+func (s *Store) Pins() (map[string]bool, error) {
+	return s.ipfs.PinLs()
+}
+
+// getEntry fetches and decrypts a single entry by CID.
+func (s *Store) getEntry(cid string) (*Entry, error) {
+	ciphertext, err := s.ipfs.Get(cid)
+	if err != nil {
+		return nil, fmt.Errorf("fetching from IPFS: %w", err)
+	}
+
+	plaintext, err := crypto.Open(s.keys.EncryptionKey, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting entry: %w", err)
+	}
+
+	var entry Entry
+	if err := json.Unmarshal(plaintext, &entry); err != nil {
+		return nil, fmt.Errorf("parsing entry: %w", err)
+	}
+
+	return &entry, nil
+}
+
+// addToIndex adds an entry to the encrypted index and updates the config.
+func (s *Store) addToIndex(entry *Entry, cid string) error {
+	idx, err := s.loadIndex()
+	if err != nil {
+		// Start with empty index if none exists
+		idx = &Index{Version: 1, Entries: []IndexEntry{}}
+	}
+
+	// Check for duplicate ID
+	for i, ie := range idx.Entries {
+		if ie.ID == entry.ID {
+			// Update existing entry
+			idx.Entries[i] = IndexEntry{
+				ID:             entry.ID,
+				CID:            cid,
+				Type:           string(entry.Type),
+				Tags:           entry.Tags,
+				Timestamp:      entry.Timestamp,
+				Source:         entry.Source,
+				ContentPreview: preview(entry.Content, 120),
+			}
+			return s.saveIndex(idx)
+		}
+	}
+
+	// Append new entry
+	idx.Entries = append(idx.Entries, IndexEntry{
+		ID:             entry.ID,
+		CID:            cid,
+		Type:           string(entry.Type),
+		Tags:           entry.Tags,
+		Timestamp:      entry.Timestamp,
+		Source:         entry.Source,
+		ContentPreview: preview(entry.Content, 120),
+	})
+	idx.Updated = time.Now().UTC().Format(time.RFC3339)
+
+	return s.saveIndex(idx)
+}
+
+// loadIndex loads and decrypts the index from IPFS.
+func (s *Store) loadIndex() (*Index, error) {
+	if s.cfg.IndexCID == "" {
+		return &Index{Version: 1, Entries: []IndexEntry{}}, nil
+	}
+
+	ciphertext, err := s.ipfs.Get(s.cfg.IndexCID)
+	if err != nil {
+		return nil, fmt.Errorf("fetching index: %w", err)
+	}
+
+	plaintext, err := crypto.Open(s.keys.IndexKey, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting index: %w", err)
+	}
+
+	var idx Index
+	if err := json.Unmarshal(plaintext, &idx); err != nil {
+		return nil, fmt.Errorf("parsing index: %w", err)
+	}
+
+	return &idx, nil
+}
+
+// saveIndex encrypts and pins the index, then updates the config.
+func (s *Store) saveIndex(idx *Index) error {
+	idxJSON, err := json.Marshal(idx)
+	if err != nil {
+		return fmt.Errorf("marshaling index: %w", err)
+	}
+
+	ciphertext, err := crypto.Seal(s.keys.IndexKey, idxJSON)
+	if err != nil {
+		return fmt.Errorf("encrypting index: %w", err)
+	}
+
+	cid, err := s.ipfs.Add(ciphertext)
+	if err != nil {
+		return fmt.Errorf("pinning index: %w", err)
+	}
+
+	s.cfg.IndexCID = cid
+	configPath := configDir() + "/config.json"
+	return s.cfg.Save(configPath)
+}
+
+func (s *Store) computeID(entry *Entry) string {
+	mac := hmac.New(sha256.New, s.keys.SigningKey[:])
+	mac.Write([]byte(string(entry.Type)))
+	mac.Write([]byte(strings.Join(entry.Tags, ",")))
+	mac.Write([]byte(entry.Content))
+	mac.Write([]byte(entry.Timestamp))
+	return fmt.Sprintf("%x", mac.Sum(nil))
+}
+
+func normalizeTags(tags []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.TrimSpace(strings.ToLower(t))
+		if t != "" && !seen[t] {
+			seen[t] = true
+			result = append(result, t)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func preview(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+func configDir() string {
+	return config.Dir()
+}
