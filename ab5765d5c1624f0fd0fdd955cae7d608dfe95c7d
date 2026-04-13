@@ -1,0 +1,25 @@
+internal/store/filter_test.go
+  b29c6257ede06eac 1-157
+internal/store/store_test.go
+  b29c6257ede06eac 1-396
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "ab5765d5c1624f0fd0fdd955cae7d608dfe95c7d",
+  "prompts": {
+    "b29c6257ede06eac": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c432f55-6737-4d5a-902d-3932175b677a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 553,
+      "total_deletions": 0,
+      "accepted_lines": 553,
+      "overriden_lines": 0
+    }
+  }
+}
