@@ -190,6 +190,87 @@ func (s *Store) Pins() (map[string]bool, error) {
 	return s.ipfs.PinLs()
 }
 
+// GC removes entries older than maxAge from the index and unpins them.
+// Returns the number of entries removed.
+func (s *Store) GC(maxAge time.Duration) (int, error) {
+	idx, err := s.loadIndex()
+	if err != nil {
+		return 0, fmt.Errorf("loading index: %w", err)
+	}
+
+	cutoff := time.Now().UTC().Add(-maxAge)
+	var kept []IndexEntry
+	removed := 0
+
+	for _, ie := range idx.Entries {
+		ts, err := time.Parse(time.RFC3339, ie.Timestamp)
+		if err != nil || ts.Before(cutoff) {
+			// Unpin — best effort, don't fail GC if unpin fails
+			if ie.CID != "" {
+				if pinErr := s.ipfs.PinRm(ie.CID); pinErr != nil {
+					fmt.Printf("Warning: failed to unpin %s: %v\n", ie.CID, pinErr)
+				}
+			}
+			removed++
+			continue
+		}
+		kept = append(kept, ie)
+	}
+
+	if removed == 0 {
+		return 0, nil
+	}
+
+	idx.Entries = kept
+	idx.Updated = time.Now().UTC().Format(time.RFC3339)
+
+	if err := s.saveIndex(idx); err != nil {
+		return removed, fmt.Errorf("saving index after GC: %w", err)
+	}
+
+	return removed, nil
+}
+
+// Export returns all decrypted entries matching the filter.
+func (s *Store) Export(filter Filter) ([]*Entry, error) {
+	return s.Read(Filter{
+		Type:   filter.Type,
+		Tags:   filter.Tags,
+		Source: filter.Source,
+		Since:  filter.Since,
+		Limit:  0, // no limit for export
+	})
+}
+
+// Import encrypts and pins entries, adding them to the index.
+// It returns the number of entries imported.
+func (s *Store) Import(entries []*Entry) (int, error) {
+	imported := 0
+	for _, entry := range entries {
+		// Re-encrypt and pin
+		plainJSON, err := json.Marshal(entry)
+		if err != nil {
+			return imported, fmt.Errorf("marshaling entry: %w", err)
+		}
+
+		ciphertext, err := crypto.Seal(s.keys.EncryptionKey, plainJSON)
+		if err != nil {
+			return imported, fmt.Errorf("encrypting entry: %w", err)
+		}
+
+		cid, err := s.ipfs.Add(ciphertext)
+		if err != nil {
+			return imported, fmt.Errorf("pinning to IPFS: %w", err)
+		}
+
+		if err := s.addToIndex(entry, cid); err != nil {
+			fmt.Printf("Warning: entry pinned (CID: %s) but index update failed: %v\n", cid, err)
+		}
+		imported++
+	}
+	return imported, nil
+}
+
 // getEntry fetches and decrypts a single entry by CID.
 func (s *Store) getEntry(cid string) (*Entry, error) {
 	ciphertext, err := s.ipfs.Get(cid)

@@ -54,13 +54,14 @@ func parseWriteFlags(args []string) (entryType, source, content, tagsStr string)
 }
 
 // parseReadFlags parses flags for the read command.
-func parseReadFlags(args []string) (entryType, source, tagsStr, sinceStr string, limit int) {
+func parseReadFlags(args []string) (entryType, source, tagsStr, sinceStr string, limit int, raw bool) {
 	fs := flag.NewFlagSet("read", flag.ExitOnError)
 	fs.StringVar(&entryType, "type", "", "Filter by entry type")
 	fs.StringVar(&source, "source", "", "Filter by agent source")
 	fs.StringVar(&tagsStr, "tag", "", "Filter by comma-separated tags")
 	fs.StringVar(&sinceStr, "since", "", "Filter entries since date (YYYY-MM-DD)")
 	fs.IntVar(&limit, "limit", 10, "Max entries to return")
+	fs.BoolVar(&raw, "raw", false, "Print full JSON including metadata")
 	fs.Parse(args)
 	return
 }
@@ -128,7 +129,7 @@ func runRead(cfg *config.Config) error {
 		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
 	}
 
-	entryType, source, tagsStr, sinceStr, limit := parseReadFlags(os.Args[2:])
+	entryType, source, tagsStr, sinceStr, limit, raw := parseReadFlags(os.Args[2:])
 
 	s, err := store.New(cfg, secret)
 	if err != nil {
@@ -165,6 +166,15 @@ func runRead(cfg *config.Config) error {
 		return nil
 	}
 
+	if raw {
+		out, err := json.MarshalIndent(entries, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling entries: %w", err)
+		}
+		fmt.Println(string(out))
+		return nil
+	}
+
 	for _, e := range entries {
 		fmt.Printf("─── %s ───\n", e.Timestamp)
 		fmt.Printf("Type: %s | Source: %s | Tags: %v\n", e.Type, e.Source, e.Tags)
@@ -180,7 +190,7 @@ func runList(cfg *config.Config) error {
 		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
 	}
 
-	entryType, source, tagsStr, sinceStr, limit := parseReadFlags(os.Args[2:])
+	entryType, source, tagsStr, sinceStr, limit, _ := parseReadFlags(os.Args[2:])
 
 	s, err := store.New(cfg, secret)
 	if err != nil {
@@ -240,5 +250,189 @@ func runPins(cfg *config.Config) error {
 		fmt.Printf("  %s\n", cid)
 	}
 
+	return nil
+}
+
+// parseGCFlags parses flags for the gc command.
+func parseGCFlags(args []string) (maxAge string) {
+	fs := flag.NewFlagSet("gc", flag.ExitOnError)
+	fs.StringVar(&maxAge, "max-age", "", "Max entry age (e.g., 30d, 24h, 720h)")
+	fs.Parse(args)
+	return
+}
+
+// parseDuration parses a duration string that supports 'd' suffix for days
+// in addition to standard Go duration suffixes (h, m, s).
+func parseDuration(s string) (time.Duration, error) {
+	if len(s) > 1 && s[len(s)-1] == 'd' {
+		// Parse days
+		days := s[:len(s)-1]
+		var n int
+		if _, err := fmt.Sscanf(days, "%d", &n); err != nil {
+			return 0, fmt.Errorf("invalid duration %q: %w", s, err)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
+}
+
+func runGC(cfg *config.Config) error {
+	secret := getSecret()
+	if secret == "" {
+		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+
+	maxAgeStr := parseGCFlags(os.Args[2:])
+	if maxAgeStr == "" {
+		return fmt.Errorf("--max-age is required (e.g., 30d, 720h)")
+	}
+
+	maxAge, err := parseDuration(maxAgeStr)
+	if err != nil {
+		return fmt.Errorf("invalid --max-age: %w", err)
+	}
+
+	s, err := store.New(cfg, secret)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	removed, err := s.GC(maxAge)
+	if err != nil {
+		return err
+	}
+
+	if removed == 0 {
+		fmt.Println("No entries older than", maxAgeStr, "found.")
+	} else {
+		fmt.Printf("Removed %d entries older than %s.\n", removed, maxAgeStr)
+	}
+
+	return nil
+}
+
+// parseExportFlags parses flags for the export command.
+func parseExportFlags(args []string) (entryType, tagsStr, output string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	fs.StringVar(&entryType, "type", "", "Filter by entry type")
+	fs.StringVar(&tagsStr, "tag", "", "Filter by comma-separated tags")
+	fs.StringVar(&output, "output", "", "Output file path (JSONL)")
+	fs.StringVar(&output, "o", "", "Output file path (shorthand)")
+	fs.Parse(args)
+	return
+}
+
+func runExport(cfg *config.Config) error {
+	secret := getSecret()
+	if secret == "" {
+		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+
+	entryType, tagsStr, output := parseExportFlags(os.Args[2:])
+	if output == "" {
+		return fmt.Errorf("--output is required")
+	}
+
+	s, err := store.New(cfg, secret)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	filter := store.Filter{
+		Type: store.EntryType(entryType),
+	}
+	if tagsStr != "" {
+		filter.Tags = strings.Split(tagsStr, ",")
+	}
+
+	entries, err := s.Export(filter)
+	if err != nil {
+		return err
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("No entries found to export.")
+		return nil
+	}
+
+	f, err := os.Create(output)
+	if err != nil {
+		return fmt.Errorf("creating output file: %w", err)
+	}
+	defer f.Close()
+
+	for _, e := range entries {
+		line, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling entry: %w", err)
+		}
+		f.Write(line)
+		f.Write([]byte("\n"))
+	}
+
+	fmt.Printf("Exported %d entries to %s\n", len(entries), output)
+	return nil
+}
+
+// parseImportFlags parses flags for the import command.
+func parseImportFlags(args []string) (input, source string) {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	fs.StringVar(&input, "input", "", "Input file path (JSONL)")
+	fs.StringVar(&input, "i", "", "Input file path (shorthand)")
+	fs.StringVar(&source, "source", "", "Override source field on imported entries")
+	fs.Parse(args)
+	return
+}
+
+func runImport(cfg *config.Config) error {
+	secret := getSecret()
+	if secret == "" {
+		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+
+	input, sourceOverride := parseImportFlags(os.Args[2:])
+	if input == "" {
+		return fmt.Errorf("--input is required")
+	}
+
+	data, err := os.ReadFile(input)
+	if err != nil {
+		return fmt.Errorf("reading input file: %w", err)
+	}
+
+	var entries []*store.Entry
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry store.Entry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			return fmt.Errorf("parsing JSONL line: %w", err)
+		}
+		if sourceOverride != "" {
+			entry.Source = sourceOverride
+		}
+		entries = append(entries, &entry)
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("No entries found in input file.")
+		return nil
+	}
+
+	s, err := store.New(cfg, secret)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	imported, err := s.Import(entries)
+	if err != nil {
+		return fmt.Errorf("import failed after %d entries: %w", imported, err)
+	}
+
+	fmt.Printf("Imported %d entries from %s\n", imported, input)
 	return nil
 }

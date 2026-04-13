@@ -50,6 +50,21 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+	case "gc":
+		if err := runGC(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "export":
+		if err := runExport(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "import":
+		if err := runImport(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println("agent-memory v0.1.0-dev")
 	default:
@@ -68,6 +83,9 @@ Usage:
   agent-memory read              Read and decrypt memory entries
   agent-memory list              List entry metadata (no decryption)
   agent-memory pins              List pinned CIDs
+  agent-memory gc                Remove old entries (unpin + rebuild index)
+  agent-memory export            Export entries as JSONL
+  agent-memory import            Import entries from JSONL
   agent-memory version           Print version
 
 Common flags:
@@ -77,7 +95,11 @@ Common flags:
   --source string    Agent source (goose|copilot|claude-code|observation-loop|human)
   --content string   Entry content (or pipe to stdin)
   --since date       Filter entries since date (YYYY-MM-DD)
-  --limit int        Max entries to return (default 10)`)
+  --limit int        Max entries to return (default 10)
+  --raw              Print full JSON (read only)
+  --max-age duration Max entry age for gc (e.g., 30d, 720h)
+  --output file      Output file for export
+  --input file       Input file for import`)
 }
 
 func runInit() error {
