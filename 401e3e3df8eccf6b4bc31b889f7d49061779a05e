@@ -1,0 +1,29 @@
+cmd/agent-memory/main.go
+  b29c6257ede06eac 53-67,86-88,98-102
+cmd/agent-memory/commands.go
+  b29c6257ede06eac 57,64,132,169-174,193,255-438
+cmd/agent-memory/commands_test.go
+  b29c6257ede06eac 6,73-75,77-80,83-85,87-89,101-106,112,128-129,178-311
+internal/store/store.go
+  b29c6257ede06eac 193-273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "401e3e3df8eccf6b4bc31b889f7d49061779a05e",
+  "prompts": {
+    "b29c6257ede06eac": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c432f55-6737-4d5a-902d-3932175b677a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 460,
+      "total_deletions": 25,
+      "accepted_lines": 460,
+      "overriden_lines": 0
+    }
+  }
+}
