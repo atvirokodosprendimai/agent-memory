@@ -1,0 +1,23 @@
+cmd/agent-memory/commands_test.go
+  b29c6257ede06eac 1-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "be99dd3b720bbdc32547718d3d117a5da2c773a3",
+  "prompts": {
+    "b29c6257ede06eac": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c432f55-6737-4d5a-902d-3932175b677a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 173,
+      "total_deletions": 0,
+      "accepted_lines": 173,
+      "overriden_lines": 0
+    }
+  }
+}
