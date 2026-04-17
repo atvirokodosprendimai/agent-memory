@@ -15,7 +15,7 @@
 - [x] 2.1 Add 10MB max content size check in `cmd/agent-memory/commands.go:89-99`
 
 ### 3. Source Case Normalization
-- [ ] 3.1 Normalize Source to lowercase in `store/filter.go:25-27` (match Tags behavior)
+- [x] 3.1 Normalize Source to lowercase in `store/filter.go:25-27` (match Tags behavior)
 
 ### 4. Buffered JSONL Export
 - [ ] 4.1 Use buffered writer in `cmd/agent-memory/commands.go:366-373` for JSONL export
