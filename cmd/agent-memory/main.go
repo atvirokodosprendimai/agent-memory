@@ -4,16 +4,29 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"sync/atomic"
+	"syscall"
 
 	"github.com/atvirokodosprendimai/agent-memory/internal/config"
 )
+
+var interrupted atomic.Bool
 
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
 	}
+
+	// Set up signal handling for graceful drain
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		interrupted.Store(true)
+	}()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -72,6 +85,10 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+
+	if interrupted.Load() {
+		fmt.Fprintln(os.Stderr, "\nInterrupted — exiting gracefully.")
+	}
 }
 
 func printUsage() {
@@ -103,6 +120,9 @@ Common flags:
 }
 
 func runInit() error {
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
+	}
 	secret := getSecret()
 	if secret == "" {
 		return fmt.Errorf("secret required: use --secret or AGENT_MEMORY_SECRET env var")

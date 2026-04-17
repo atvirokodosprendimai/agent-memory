@@ -70,9 +70,15 @@ func parseReadFlags(args []string) (entryType, source, tagsStr, sinceStr string,
 }
 
 func runWrite(cfg *config.Config) error {
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
+	}
 	secret := getSecret()
 	if secret == "" {
 		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
 	}
 
 	entryType, source, content, tagsStr := parseWriteFlags(os.Args[2:])
@@ -132,9 +138,15 @@ func runWrite(cfg *config.Config) error {
 }
 
 func runRead(cfg *config.Config) error {
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
+	}
 	secret := getSecret()
 	if secret == "" {
 		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
 	}
 
 	entryType, source, tagsStr, sinceStr, limit, raw := parseReadFlags(os.Args[2:])
@@ -193,9 +205,15 @@ func runRead(cfg *config.Config) error {
 }
 
 func runList(cfg *config.Config) error {
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
+	}
 	secret := getSecret()
 	if secret == "" {
 		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
 	}
 
 	entryType, source, tagsStr, sinceStr, limit, _ := parseReadFlags(os.Args[2:])
@@ -240,6 +258,9 @@ func runList(cfg *config.Config) error {
 }
 
 func runPins(cfg *config.Config) error {
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
+	}
 	client := ipfs.NewClient(cfg.IPFSAddr)
 	defer client.Close()
 
@@ -285,9 +306,15 @@ func parseDuration(s string) (time.Duration, error) {
 }
 
 func runGC(cfg *config.Config) error {
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
+	}
 	secret := getSecret()
 	if secret == "" {
 		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
 	}
 
 	maxAgeStr := parseGCFlags(os.Args[2:])
@@ -332,9 +359,15 @@ func parseExportFlags(args []string) (entryType, tagsStr, output string) {
 }
 
 func runExport(cfg *config.Config) error {
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
+	}
 	secret := getSecret()
 	if secret == "" {
 		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
 	}
 
 	entryType, tagsStr, output := parseExportFlags(os.Args[2:])
@@ -398,9 +431,15 @@ func parseImportFlags(args []string) (input, source string) {
 }
 
 func runImport(cfg *config.Config) error {
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
+	}
 	secret := getSecret()
 	if secret == "" {
 		return fmt.Errorf("secret required: set AGENT_MEMORY_SECRET or use --secret")
+	}
+	if interrupted.Load() {
+		return fmt.Errorf("interrupted")
 	}
 
 	input, sourceOverride := parseImportFlags(os.Args[2:])
