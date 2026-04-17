@@ -1,51 +1,97 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/atvirokodosprendimai/agent-memory/internal/config"
+	"github.com/atvirokodosprendimai/agent-memory/internal/store"
 )
+
+// mockStore implements a minimal store for testing.
+type mockStore struct {
+	writeFunc func(entryType store.EntryType, source string, tags []string, content string, metadata map[string]any) (*store.Entry, error)
+	readFunc  func(filter store.Filter) ([]*store.Entry, error)
+	gcFunc    func(maxAge time.Duration) (int, error)
+	closeFunc func() error
+}
+
+func (m *mockStore) Write(entryType store.EntryType, source string, tags []string, content string, metadata map[string]any) (*store.Entry, error) {
+	if m.writeFunc != nil {
+		return m.writeFunc(entryType, source, tags, content, metadata)
+	}
+	return &store.Entry{ID: "mock-id", Type: entryType, Source: source, Tags: tags, Content: content}, nil
+}
+
+func (m *mockStore) Read(filter store.Filter) ([]*store.Entry, error) {
+	if m.readFunc != nil {
+		return m.readFunc(filter)
+	}
+	return nil, nil
+}
+
+func (m *mockStore) GC(maxAge time.Duration) (int, error) {
+	if m.gcFunc != nil {
+		return m.gcFunc(maxAge)
+	}
+	return 0, nil
+}
+
+func (m *mockStore) Close() error {
+	if m.closeFunc != nil {
+		return m.closeFunc()
+	}
+	return nil
+}
+
+func testConfig() *config.Config {
+	return &config.Config{
+		IPFSAddr: "http://localhost:5001",
+	}
+}
 
 func TestParseWriteFlags(t *testing.T) {
 	tests := []struct {
-		name       string
-		args       []string
-		wantType   string
-		wantSource string
+		name        string
+		args        []string
+		wantType    string
+		wantSource  string
 		wantContent string
-		wantTags   string
+		wantTags    string
 	}{
 		{
-			name:       "all long flags",
-			args:       []string{"--type", "decision", "--source", "goose", "--content", "Use Stripe", "--tag", "billing,stripe"},
-			wantType:   "decision",
-			wantSource: "goose",
+			name:        "all long flags",
+			args:        []string{"--type", "decision", "--source", "goose", "--content", "Use Stripe", "--tag", "billing,stripe"},
+			wantType:    "decision",
+			wantSource:  "goose",
 			wantContent: "Use Stripe",
-			wantTags:   "billing,stripe",
+			wantTags:    "billing,stripe",
 		},
 		{
-			name:       "short flags",
-			args:       []string{"-t", "learning", "-s", "human", "-c", "Learned something"},
-			wantType:   "learning",
-			wantSource: "human",
+			name:        "short flags",
+			args:        []string{"-t", "learning", "-s", "human", "-c", "Learned something"},
+			wantType:    "learning",
+			wantSource:  "human",
 			wantContent: "Learned something",
-			wantTags:   "",
+			wantTags:    "",
 		},
 		{
-			name:       "defaults",
-			args:       []string{},
-			wantType:   "",
-			wantSource: "human",
+			name:        "defaults",
+			args:        []string{},
+			wantType:    "",
+			wantSource:  "human",
 			wantContent: "",
-			wantTags:   "",
+			wantTags:    "",
 		},
 		{
-			name:       "only type and content",
-			args:       []string{"--type", "blocker", "--content", "No API key"},
-			wantType:   "blocker",
-			wantSource: "human",
+			name:        "only type and content",
+			args:        []string{"--type", "blocker", "--content", "No API key"},
+			wantType:    "blocker",
+			wantSource:  "human",
 			wantContent: "No API key",
-			wantTags:   "",
+			wantTags:    "",
 		},
 	}
 
@@ -308,4 +354,275 @@ func TestParseImportFlags(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunWrite(t *testing.T) {
+	origSecret := os.Getenv("AGENT_MEMORY_SECRET")
+	origArgs := os.Args
+	defer func() {
+		os.Setenv("AGENT_MEMORY_SECRET", origSecret)
+		os.Args = origArgs
+	}()
+
+	t.Run("calls store.Write with correct args", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "write", "--type", "decision", "--source", "goose", "--content", "Use Stripe", "--tag", "billing,stripe"}
+
+		var capturedType store.EntryType
+		var capturedSource, capturedContent string
+		var capturedTags []string
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{
+				writeFunc: func(entryType store.EntryType, source string, tags []string, content string, metadata map[string]any) (*store.Entry, error) {
+					capturedType = entryType
+					capturedSource = source
+					capturedTags = tags
+					capturedContent = content
+					return &store.Entry{ID: "abcd1234efgh5678ijkl9012mnop3456", Type: entryType, Source: source, Tags: tags, Content: content}, nil
+				},
+			}, nil
+		}
+
+		cfg := testConfig()
+		err := runWrite(cfg)
+
+		if err != nil {
+			t.Errorf("runWrite() error = %v, want nil", err)
+		}
+		if capturedType != "decision" {
+			t.Errorf("capturedType = %q, want %q", capturedType, "decision")
+		}
+		if capturedSource != "goose" {
+			t.Errorf("capturedSource = %q, want %q", capturedSource, "goose")
+		}
+		if capturedContent != "Use Stripe" {
+			t.Errorf("capturedContent = %q, want %q", capturedContent, "Use Stripe")
+		}
+		if len(capturedTags) != 2 || capturedTags[0] != "billing" || capturedTags[1] != "stripe" {
+			t.Errorf("capturedTags = %v, want [billing stripe]", capturedTags)
+		}
+	})
+
+	t.Run("returns error when store.Write fails", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "write", "--type", "decision", "--content", "Test content"}
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{
+				writeFunc: func(entryType store.EntryType, source string, tags []string, content string, metadata map[string]any) (*store.Entry, error) {
+					return nil, errors.New("write failed")
+				},
+			}, nil
+		}
+
+		cfg := testConfig()
+		err := runWrite(cfg)
+
+		if err == nil {
+			t.Error("runWrite() error = nil, want error")
+		}
+		if err.Error() != "write failed" {
+			t.Errorf("runWrite() error = %q, want %q", err.Error(), "write failed")
+		}
+	})
+
+	// Reset storeFactory to default
+	origStoreFactory := storeFactory
+	storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+		return store.New(cfg, secret)
+	}
+	defer func() { storeFactory = origStoreFactory }()
+}
+
+func TestRunRead(t *testing.T) {
+	origSecret := os.Getenv("AGENT_MEMORY_SECRET")
+	origArgs := os.Args
+	defer func() {
+		os.Setenv("AGENT_MEMORY_SECRET", origSecret)
+		os.Args = origArgs
+	}()
+
+	t.Run("calls store.Read with correct filter", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "read", "--type", "decision", "--source", "human", "--tag", "billing", "--limit", "5"}
+
+		var capturedFilter store.Filter
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{
+				readFunc: func(filter store.Filter) ([]*store.Entry, error) {
+					capturedFilter = filter
+					return []*store.Entry{
+						{ID: "entry1", Type: "decision", Source: "human", Content: "Test entry", Tags: []string{"billing"}},
+					}, nil
+				},
+			}, nil
+		}
+
+		cfg := testConfig()
+		err := runRead(cfg)
+
+		if err != nil {
+			t.Errorf("runRead() error = %v, want nil", err)
+		}
+		if capturedFilter.Type != "decision" {
+			t.Errorf("capturedFilter.Type = %q, want %q", capturedFilter.Type, "decision")
+		}
+		if capturedFilter.Source != "human" {
+			t.Errorf("capturedFilter.Source = %q, want %q", capturedFilter.Source, "human")
+		}
+		if capturedFilter.Limit != 5 {
+			t.Errorf("capturedFilter.Limit = %d, want %d", capturedFilter.Limit, 5)
+		}
+		if len(capturedFilter.Tags) != 1 || capturedFilter.Tags[0] != "billing" {
+			t.Errorf("capturedFilter.Tags = %v, want [billing]", capturedFilter.Tags)
+		}
+	})
+
+	t.Run("handles empty results", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "read"}
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{
+				readFunc: func(filter store.Filter) ([]*store.Entry, error) {
+					return []*store.Entry{}, nil
+				},
+			}, nil
+		}
+
+		cfg := testConfig()
+		err := runRead(cfg)
+
+		if err != nil {
+			t.Errorf("runRead() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("returns error when store.Read fails", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "read"}
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{
+				readFunc: func(filter store.Filter) ([]*store.Entry, error) {
+					return nil, errors.New("read failed")
+				},
+			}, nil
+		}
+
+		cfg := testConfig()
+		err := runRead(cfg)
+
+		if err == nil {
+			t.Error("runRead() error = nil, want error")
+		}
+	})
+
+	// Reset storeFactory to default
+	origStoreFactory := storeFactory
+	storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+		return store.New(cfg, secret)
+	}
+	defer func() { storeFactory = origStoreFactory }()
+}
+
+func TestRunGC(t *testing.T) {
+	origSecret := os.Getenv("AGENT_MEMORY_SECRET")
+	origArgs := os.Args
+	defer func() {
+		os.Setenv("AGENT_MEMORY_SECRET", origSecret)
+		os.Args = origArgs
+	}()
+
+	t.Run("calls store.GC with correct maxAge", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "gc", "--max-age", "30d"}
+
+		var capturedMaxAge time.Duration
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{
+				gcFunc: func(maxAge time.Duration) (int, error) {
+					capturedMaxAge = maxAge
+					return 5, nil
+				},
+			}, nil
+		}
+
+		cfg := testConfig()
+		err := runGC(cfg)
+
+		if err != nil {
+			t.Errorf("runGC() error = %v, want nil", err)
+		}
+		expectedAge := 30 * 24 * time.Hour
+		if capturedMaxAge != expectedAge {
+			t.Errorf("capturedMaxAge = %v, want %v", capturedMaxAge, expectedAge)
+		}
+	})
+
+	t.Run("returns correct removed count", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "gc", "--max-age", "7d"}
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{
+				gcFunc: func(maxAge time.Duration) (int, error) {
+					return 3, nil
+				},
+			}, nil
+		}
+
+		cfg := testConfig()
+		err := runGC(cfg)
+
+		if err != nil {
+			t.Errorf("runGC() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("returns error when store.GC fails", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "gc", "--max-age", "30d"}
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{
+				gcFunc: func(maxAge time.Duration) (int, error) {
+					return 0, errors.New("gc failed")
+				},
+			}, nil
+		}
+
+		cfg := testConfig()
+		err := runGC(cfg)
+
+		if err == nil {
+			t.Error("runGC() error = nil, want error")
+		}
+	})
+
+	t.Run("returns error when max-age not provided", func(t *testing.T) {
+		os.Setenv("AGENT_MEMORY_SECRET", "test-secret")
+		os.Args = []string{"cmd", "gc"}
+
+		storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+			return &mockStore{}, nil
+		}
+
+		cfg := testConfig()
+		err := runGC(cfg)
+
+		if err == nil {
+			t.Error("runGC() error = nil, want error about missing --max-age")
+		}
+	})
+
+	// Reset storeFactory to default
+	origStoreFactory := storeFactory
+	storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+		return store.New(cfg, secret)
+	}
+	defer func() { storeFactory = origStoreFactory }()
 }

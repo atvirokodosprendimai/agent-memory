@@ -17,6 +17,19 @@ import (
 
 const maxStdinSize = 10 * 1024 * 1024 // 10MB limit for stdin content
 
+// StoreInterface defines the interface needed by command handlers.
+type StoreInterface interface {
+	Write(entryType store.EntryType, source string, tags []string, content string, metadata map[string]any) (*store.Entry, error)
+	Read(filter store.Filter) ([]*store.Entry, error)
+	GC(maxAge time.Duration) (int, error)
+	Close() error
+}
+
+// storeFactory is the function used to create stores. It can be overridden in tests.
+var storeFactory = func(cfg *config.Config, secret string) (StoreInterface, error) {
+	return store.New(cfg, secret)
+}
+
 // getSecret returns the agent secret from --secret flag, AGENT_MEMORY_SECRET env, or stdin prompt.
 func getSecret() string {
 	// Check env first
@@ -122,7 +135,7 @@ func runWrite(cfg *config.Config) error {
 	}
 
 	// Create store and write entry
-	s, err := store.New(cfg, secret)
+	s, err := storeFactory(cfg, secret)
 	if err != nil {
 		return err
 	}
@@ -151,7 +164,7 @@ func runRead(cfg *config.Config) error {
 
 	entryType, source, tagsStr, sinceStr, limit, raw := parseReadFlags(os.Args[2:])
 
-	s, err := store.New(cfg, secret)
+	s, err := storeFactory(cfg, secret)
 	if err != nil {
 		return err
 	}
@@ -327,7 +340,7 @@ func runGC(cfg *config.Config) error {
 		return fmt.Errorf("invalid --max-age: %w", err)
 	}
 
-	s, err := store.New(cfg, secret)
+	s, err := storeFactory(cfg, secret)
 	if err != nil {
 		return err
 	}
