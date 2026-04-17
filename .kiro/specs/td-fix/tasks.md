@@ -12,7 +12,7 @@
 - [x] 1.1 Add 30s timeout to ipfs.Client http.Client in `internal/ipfs/client.go`
 
 ### 2. Stdin Size Limit
-- [ ] 2.1 Add 10MB max content size check in `cmd/agent-memory/commands.go:89-99`
+- [x] 2.1 Add 10MB max content size check in `cmd/agent-memory/commands.go:89-99`
 
 ### 3. Source Case Normalization
 - [ ] 3.1 Normalize Source to lowercase in `store/filter.go:25-27` (match Tags behavior)
