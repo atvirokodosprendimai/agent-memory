@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -370,13 +371,16 @@ func runExport(cfg *config.Config) error {
 	}
 	defer f.Close()
 
+	bw := bufio.NewWriter(f)
+	defer bw.Flush()
+
 	for _, e := range entries {
 		line, err := json.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("marshaling entry: %w", err)
 		}
-		f.Write(line)
-		f.Write([]byte("\n"))
+		bw.Write(line)
+		bw.Write([]byte("\n"))
 	}
 
 	fmt.Printf("Exported %d entries to %s\n", len(entries), output)
