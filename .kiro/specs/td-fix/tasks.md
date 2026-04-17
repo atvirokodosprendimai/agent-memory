@@ -27,7 +27,7 @@
 - [x] 6.1 Add signal trap with graceful drain in `cmd/agent-memory/main.go:12-75`
 
 ### 7. Command Test Coverage
-- [ ] 7.1 Add unit tests for runWrite/runRead/runGC using mock store in `cmd/agent-memory/commands_test.go`
+- [x] 7.1 Add unit tests for runWrite/runRead/runGC using mock store in `cmd/agent-memory/commands_test.go`
 
 ## Dependency Order
 1 → 2 → 3 → 4 → 5 → 6 → 7 (no inter-task dependencies, sequential for safety)
