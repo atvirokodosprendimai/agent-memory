@@ -21,7 +21,7 @@
 - [x] 4.1 Use buffered writer in `cmd/agent-memory/commands.go:366-373` for JSONL export
 
 ### 5. GC Atomicity
-- [ ] 5.1 Ensure GC saves index before unpinning in `internal/store/store.go:200-215` (collect errors, fail before changes)
+- [x] 5.1 Ensure GC saves index before unpinning in `internal/store/store.go:200-215` (collect errors, fail before changes)
 
 ### 6. Signal Handling
 - [ ] 6.1 Add signal trap with graceful drain in `cmd/agent-memory/main.go:12-75`
