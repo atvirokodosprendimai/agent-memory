@@ -14,6 +14,8 @@ import (
 	"github.com/atvirokodosprendimai/agent-memory/internal/store"
 )
 
+const maxStdinSize = 10 * 1024 * 1024 // 10MB limit for stdin content
+
 // getSecret returns the agent secret from --secret flag, AGENT_MEMORY_SECRET env, or stdin prompt.
 func getSecret() string {
 	// Check env first
@@ -90,9 +92,14 @@ func runWrite(cfg *config.Config) error {
 	if content == "" {
 		stat, _ := os.Stdin.Stat()
 		if (stat.Mode() & os.ModeCharDevice) == 0 {
-			data, err := io.ReadAll(os.Stdin)
+			limited := io.LimitReader(os.Stdin, maxStdinSize)
+			data, err := io.ReadAll(limited)
 			if err != nil {
 				return fmt.Errorf("reading stdin: %w", err)
+			}
+			// Check if we hit the limit
+			if len(data) >= maxStdinSize {
+				return fmt.Errorf("content exceeds maximum size of 10MB")
 			}
 			content = strings.TrimSpace(string(data))
 		}
