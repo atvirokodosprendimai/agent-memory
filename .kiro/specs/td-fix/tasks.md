@@ -18,7 +18,7 @@
 - [x] 3.1 Normalize Source to lowercase in `store/filter.go:25-27` (match Tags behavior)
 
 ### 4. Buffered JSONL Export
-- [ ] 4.1 Use buffered writer in `cmd/agent-memory/commands.go:366-373` for JSONL export
+- [x] 4.1 Use buffered writer in `cmd/agent-memory/commands.go:366-373` for JSONL export
 
 ### 5. GC Atomicity
 - [ ] 5.1 Ensure GC saves index before unpinning in `internal/store/store.go:200-215` (collect errors, fail before changes)
