@@ -24,7 +24,7 @@
 - [x] 5.1 Ensure GC saves index before unpinning in `internal/store/store.go:200-215` (collect errors, fail before changes)
 
 ### 6. Signal Handling
-- [ ] 6.1 Add signal trap with graceful drain in `cmd/agent-memory/main.go:12-75`
+- [x] 6.1 Add signal trap with graceful drain in `cmd/agent-memory/main.go:12-75`
 
 ### 7. Command Test Coverage
 - [ ] 7.1 Add unit tests for runWrite/runRead/runGC using mock store in `cmd/agent-memory/commands_test.go`
