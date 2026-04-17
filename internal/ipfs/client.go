@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"time"
 )
 
 // Client wraps an HTTP client for communicating with a Kubo IPFS daemon.
@@ -22,7 +23,7 @@ type Client struct {
 func NewClient(addr string) *Client {
 	return &Client{
 		addr:   addr,
-		client: &http.Client{},
+		client: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
