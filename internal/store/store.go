@@ -23,24 +23,24 @@ import (
 type EntryType string
 
 const (
-	TypeDecision   EntryType = "decision"
-	TypeLearning   EntryType = "learning"
-	TypeTrace      EntryType = "trace"
+	TypeDecision    EntryType = "decision"
+	TypeLearning    EntryType = "learning"
+	TypeTrace       EntryType = "trace"
 	TypeObservation EntryType = "observation"
-	TypeBlocker    EntryType = "blocker"
-	TypeContext    EntryType = "context"
+	TypeBlocker     EntryType = "blocker"
+	TypeContext     EntryType = "context"
 )
 
 // Entry is a single memory record.
 type Entry struct {
-	ID        string            `json:"id"`
-	Type      EntryType         `json:"type"`
-	Source    string            `json:"source"`
-	Timestamp string            `json:"timestamp"`
-	Tags      []string          `json:"tags"`
-	Content   string            `json:"content"`
-	Metadata  map[string]any    `json:"metadata,omitempty"`
-	Version   int               `json:"version"`
+	ID        string         `json:"id"`
+	Type      EntryType      `json:"type"`
+	Source    string         `json:"source"`
+	Timestamp string         `json:"timestamp"`
+	Tags      []string       `json:"tags"`
+	Content   string         `json:"content"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	Version   int            `json:"version"`
 }
 
 // IndexEntry is a lightweight entry in the encrypted index.
@@ -63,9 +63,9 @@ type Index struct {
 
 // Store manages encrypted memory entries on IPFS.
 type Store struct {
-	cfg   *config.Config
-	keys  *config.Keys
-	ipfs  *ipfs.Client
+	cfg  *config.Config
+	keys *config.Keys
+	ipfs *ipfs.Client
 }
 
 // New creates a new Store from config and secret.
@@ -200,16 +200,14 @@ func (s *Store) GC(maxAge time.Duration) (int, error) {
 
 	cutoff := time.Now().UTC().Add(-maxAge)
 	var kept []IndexEntry
+	var removedCIDs []string
 	removed := 0
 
 	for _, ie := range idx.Entries {
 		ts, err := time.Parse(time.RFC3339, ie.Timestamp)
 		if err != nil || ts.Before(cutoff) {
-			// Unpin — best effort, don't fail GC if unpin fails
 			if ie.CID != "" {
-				if pinErr := s.ipfs.PinRm(ie.CID); pinErr != nil {
-					fmt.Printf("Warning: failed to unpin %s: %v\n", ie.CID, pinErr)
-				}
+				removedCIDs = append(removedCIDs, ie.CID)
 			}
 			removed++
 			continue
@@ -226,6 +224,14 @@ func (s *Store) GC(maxAge time.Duration) (int, error) {
 
 	if err := s.saveIndex(idx); err != nil {
 		return removed, fmt.Errorf("saving index after GC: %w", err)
+	}
+
+	var unpinErrs []error
+	for _, cid := range removedCIDs {
+		if pinErr := s.ipfs.PinRm(cid); pinErr != nil {
+			unpinErrs = append(unpinErrs, pinErr)
+			fmt.Printf("Warning: failed to unpin %s: %v\n", cid, pinErr)
+		}
 	}
 
 	return removed, nil
