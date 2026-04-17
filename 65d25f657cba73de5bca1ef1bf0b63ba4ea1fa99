@@ -1,0 +1,51 @@
+cmd/agent-memory/commands.go
+  3b6da5afda9875cb 73-75,80-82,141-143,148-150,208-210,215-217,261-263,309-311,316-318,362-364,369-371,434-436,441-442
+cmd/agent-memory/main.go
+  3b6da5afda9875cb 7,9-10,15-16,23-30,88-91,123-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "65d25f657cba73de5bca1ef1bf0b63ba4ea1fa99",
+  "prompts": {
+    "3b6da5afda9875cb": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_2629fb6b8ffenk5yPKuu50q95n",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 62,
+      "total_deletions": 3,
+      "accepted_lines": 60,
+      "overriden_lines": 0
+    },
+    "8b04d1b28d5b51c9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_262b55c50ffekXaacHx5SAnlsa",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 49,
+      "overriden_lines": 0
+    },
+    "c7dd459f543dd598": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_262b7a645ffe1h7skqBKgVHiBh",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    }
+  }
+}
