@@ -45,6 +45,24 @@ func TestFilterMatch(t *testing.T) {
 			want:   false,
 		},
 		{
+			name:   "source matching is case-insensitive filter uppercase",
+			filter: Filter{Source: "GOOSE"},
+			entry:  IndexEntry{Source: "goose", Timestamp: ts},
+			want:   true,
+		},
+		{
+			name:   "source matching is case-insensitive entry uppercase",
+			filter: Filter{Source: "goose"},
+			entry:  IndexEntry{Source: "GOOSE", Timestamp: ts},
+			want:   true,
+		},
+		{
+			name:   "source matching is case-insensitive mixed case",
+			filter: Filter{Source: "Goose"},
+			entry:  IndexEntry{Source: "gOoSe", Timestamp: ts},
+			want:   true,
+		},
+		{
 			name:   "single tag matches",
 			filter: Filter{Tags: []string{"billing"}},
 			entry:  IndexEntry{Tags: []string{"billing", "stripe"}, Timestamp: ts},

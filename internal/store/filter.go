@@ -22,7 +22,7 @@ func (f *Filter) Match(ie *IndexEntry) bool {
 	}
 
 	// Source filter
-	if f.Source != "" && ie.Source != f.Source {
+	if f.Source != "" && strings.ToLower(ie.Source) != strings.ToLower(f.Source) {
 		return false
 	}
 
