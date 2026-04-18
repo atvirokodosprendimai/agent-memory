@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sync/atomic"
@@ -127,13 +126,6 @@ func runInit() error {
 	if secret == "" {
 		return fmt.Errorf("secret required: use --secret or AGENT_MEMORY_SECRET env var")
 	}
-
-	// Check if ipfs is available
-	ipfsPath, err := exec.LookPath("ipfs")
-	if err != nil {
-		return fmt.Errorf("ipfs not found in PATH — install Kubo (go-ipfs): https://docs.ipfs.tech/install/command-line/")
-	}
-	fmt.Printf("Found ipfs at %s\n", ipfsPath)
 
 	// Test IPFS daemon
 	ipfsAddr := getIPFSAddr()
