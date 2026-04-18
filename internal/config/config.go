@@ -32,11 +32,13 @@ const (
 // The secret is never stored — only the salt is persisted so that keys
 // can be re-derived on demand.
 type Config struct {
-	Version  int    `json:"version"`
-	IPFSAddr string `json:"ipfs_addr"`
-	SaltHex  string `json:"salt_hex"`
-	IndexCID string `json:"index_cid,omitempty"`
-	Created  string `json:"created"`
+	Version    int    `json:"version"`
+	IPFSAddr   string `json:"ipfs_addr"`
+	SaltHex    string `json:"salt_hex"`
+	IndexCID   string `json:"index_cid,omitempty"`
+	Created    string `json:"created"`
+	P2PEnabled bool   `json:"p2p_enabled,omitempty"`
+	DataDir    string `json:"data_dir,omitempty"`
 }
 
 // Keys holds the three derived keys used by the system.
@@ -52,7 +54,16 @@ func Dir() string {
 	return filepath.Join(home, ".config", "agent-memory")
 }
 
+// DefaultDataDir returns the default P2P data directory: ~/.agent-memory/p2p/
+func DefaultDataDir() string {
+	home := homeDir()
+	return filepath.Join(home, ".agent-memory", "p2p")
+}
+
 // Load reads the configuration from ~/.config/agent-memory/config.json.
+// Environment variables override config file values:
+//   - AGENT_MEMORY_P2P_ENABLED overrides p2p_enabled
+//   - AGENT_MEMORY_DATA_DIR overrides data_dir
 func Load() (*Config, error) {
 	path := filepath.Join(Dir(), "config.json")
 	data, err := os.ReadFile(path)
@@ -63,12 +74,21 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
+
+	// Override from environment variables.
+	if v := os.Getenv("AGENT_MEMORY_P2P_ENABLED"); v != "" {
+		cfg.P2PEnabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AGENT_MEMORY_DATA_DIR"); v != "" {
+		cfg.DataDir = v
+	}
+
 	return &cfg, nil
 }
 
 // Create generates a new Config with a random salt and derives keys
 // from the given secret using HKDF-SHA256.
-func Create(secret string, ipfsAddr string) (*Config, error) {
+func Create(secret string, ipfsAddr string, p2pEnabled bool, dataDir string) (*Config, error) {
 	if secret == "" {
 		return nil, fmt.Errorf("secret must not be empty")
 	}
@@ -84,11 +104,18 @@ func Create(secret string, ipfsAddr string) (*Config, error) {
 		return nil, fmt.Errorf("deriving keys: %w", err)
 	}
 
+	// Apply default DataDir if empty.
+	if dataDir == "" {
+		dataDir = DefaultDataDir()
+	}
+
 	cfg := &Config{
-		Version:  version,
-		IPFSAddr: ipfsAddr,
-		SaltHex:  hex.EncodeToString(salt),
-		Created:  nowUTC(),
+		Version:    version,
+		IPFSAddr:   ipfsAddr,
+		SaltHex:    hex.EncodeToString(salt),
+		Created:    nowUTC(),
+		P2PEnabled: p2pEnabled,
+		DataDir:    dataDir,
 	}
 	return cfg, nil
 }

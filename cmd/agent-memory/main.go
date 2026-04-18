@@ -140,8 +140,8 @@ func runInit() error {
 	}
 	fmt.Printf("IPFS daemon connected at %s\n", ipfsAddr)
 
-	// Create config
-	cfg, err := config.Create(secret, ipfsAddr)
+	// Create config (P2P disabled by default for backward compatibility)
+	cfg, err := config.Create(secret, ipfsAddr, false, "")
 	if err != nil {
 		return fmt.Errorf("creating config: %w", err)
 	}

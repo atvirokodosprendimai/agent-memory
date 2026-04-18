@@ -316,7 +316,7 @@ func TestPreview(t *testing.T) {
 }
 
 func TestComputeIDDeterministic(t *testing.T) {
-	cfg, err := config.Create("test-secret-compute-id", "http://localhost:5001")
+	cfg, err := config.Create("test-secret-compute-id", "http://localhost:5001", false, "")
 	if err != nil {
 		t.Fatalf("config.Create: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestComputeIDDeterministic(t *testing.T) {
 }
 
 func TestComputeIDDifferentContent(t *testing.T) {
-	cfg, err := config.Create("test-secret-diff", "http://localhost:5001")
+	cfg, err := config.Create("test-secret-diff", "http://localhost:5001", false, "")
 	if err != nil {
 		t.Fatalf("config.Create: %v", err)
 	}
@@ -366,8 +366,8 @@ func TestComputeIDDifferentContent(t *testing.T) {
 }
 
 func TestComputeIDDifferentKeys(t *testing.T) {
-	cfg1, _ := config.Create("secret-one", "http://localhost:5001")
-	cfg2, _ := config.Create("secret-two", "http://localhost:5001")
+	cfg1, _ := config.Create("secret-one", "http://localhost:5001", false, "")
+	cfg2, _ := config.Create("secret-two", "http://localhost:5001", false, "")
 	keys1, _ := cfg1.GetKeys("secret-one")
 	keys2, _ := cfg2.GetKeys("secret-two")
 
@@ -399,7 +399,7 @@ func newTestStore(t *testing.T) *Store {
 	}
 	client.Close()
 
-	cfg, err := config.Create(testSecret, "http://localhost:5001")
+	cfg, err := config.Create(testSecret, "http://localhost:5001", false, "")
 	if err != nil {
 		t.Fatalf("config.Create: %v", err)
 	}
@@ -594,7 +594,7 @@ func TestReadRespectsLimit(t *testing.T) {
 }
 
 func TestNewStoreRejectsEmptySecret(t *testing.T) {
-	cfg, err := config.Create("valid-secret-here", "http://localhost:5001")
+	cfg, err := config.Create("valid-secret-here", "http://localhost:5001", false, "")
 	if err != nil {
 		t.Fatalf("config.Create: %v", err)
 	}

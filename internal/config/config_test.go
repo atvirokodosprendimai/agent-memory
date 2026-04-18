@@ -27,7 +27,7 @@ func TestCreateAndGetKeysRoundTrip(t *testing.T) {
 	secret := "super-secret-test-value"
 	ipfsAddr := "/ip4/127.0.0.1/tcp/5001"
 
-	cfg, err := Create(secret, ipfsAddr)
+	cfg, err := Create(secret, ipfsAddr, false, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestCreateAndGetKeysRoundTrip(t *testing.T) {
 }
 
 func TestCreateRejectsEmptySecret(t *testing.T) {
-	_, err := Create("", "/ip4/127.0.0.1/tcp/5001")
+	_, err := Create("", "/ip4/127.0.0.1/tcp/5001", false, "")
 	if err == nil {
 		t.Fatal("Create with empty secret should return error")
 	}
@@ -108,7 +108,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.json")
 
 	secret := "test-secret-for-save"
-	cfg, err := Create(secret, "/ip4/127.0.0.1/tcp/5001")
+	cfg, err := Create(secret, "/ip4/127.0.0.1/tcp/5001", false, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 
 func TestKeysAreDifferent(t *testing.T) {
 	secret := "key-difference-test"
-	cfg, err := Create(secret, "/ip4/127.0.0.1/tcp/5001")
+	cfg, err := Create(secret, "/ip4/127.0.0.1/tcp/5001", false, "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -183,8 +183,8 @@ func TestKeysAreDifferent(t *testing.T) {
 
 func TestDifferentConfigsProduceDifferentKeys(t *testing.T) {
 	secret := "same-secret"
-	cfg1, _ := Create(secret, "/ip4/127.0.0.1/tcp/5001")
-	cfg2, _ := Create(secret, "/ip4/127.0.0.1/tcp/5001")
+	cfg1, _ := Create(secret, "/ip4/127.0.0.1/tcp/5001", false, "")
+	cfg2, _ := Create(secret, "/ip4/127.0.0.1/tcp/5001", false, "")
 
 	if cfg1.SaltHex == cfg2.SaltHex {
 		t.Error("Two Create calls produced the same salt (extremely unlikely)")
@@ -202,11 +202,60 @@ func TestIndexCIDIsOmittedWhenEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
 
-	cfg, _ := Create("secret", "/ip4/127.0.0.1/tcp/5001")
+	cfg, _ := Create("secret", "/ip4/127.0.0.1/tcp/5001", false, "")
 	cfg.Save(configPath)
 
 	data, _ := os.ReadFile(configPath)
 	if strings.Contains(string(data), "index_cid") {
 		t.Error("index_cid should be omitted when empty due to omitempty tag")
+	}
+}
+
+func TestCreateSetsP2PEnabled(t *testing.T) {
+	cfg, err := Create("secret", "/ip4/127.0.0.1/tcp/5001", true, "/custom/p2p")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if !cfg.P2PEnabled {
+		t.Error("P2PEnabled = false, want true")
+	}
+}
+
+func TestCreateSetsDataDir(t *testing.T) {
+	dataDir := "/custom/p2p/data"
+	cfg, err := Create("secret", "/ip4/127.0.0.1/tcp/5001", false, dataDir)
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if cfg.DataDir != dataDir {
+		t.Errorf("DataDir = %q, want %q", cfg.DataDir, dataDir)
+	}
+}
+
+func TestCreateAppliesDefaultDataDir(t *testing.T) {
+	cfg, err := Create("secret", "/ip4/127.0.0.1/tcp/5001", false, "")
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if cfg.DataDir == "" {
+		t.Error("DataDir is empty, want default")
+	}
+	expected := DefaultDataDir()
+	if cfg.DataDir != expected {
+		t.Errorf("DataDir = %q, want default %q", cfg.DataDir, expected)
+	}
+}
+
+func TestDefaultDataDir(t *testing.T) {
+	dir := DefaultDataDir()
+	if dir == "" {
+		t.Fatal("DefaultDataDir() returned empty")
+	}
+	if filepath.Base(dir) != "p2p" {
+		t.Fatalf("DefaultDataDir() = %q, want base to be 'p2p'", dir)
+	}
+	parent := filepath.Base(filepath.Dir(dir))
+	if parent != ".agent-memory" {
+		t.Fatalf("DefaultDataDir() = %q, want parent to be '.agent-memory'", dir)
 	}
 }
