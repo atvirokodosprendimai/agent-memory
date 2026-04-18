@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,9 +13,11 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	libp2precord "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	"golang.org/x/crypto/hkdf"
 )
@@ -97,10 +100,24 @@ func NewHost(ctx context.Context, secret string, dataDir string) (Host, error) {
 		return nil, fmt.Errorf("p2p: creating libp2p host: %w", err)
 	}
 
-	// Create DHT client mode
+	// Create DHT client mode with custom validator and protocol prefix for peer discovery.
+	// We use a custom protocol prefix so we can use our own validator
+	// This prefix should be unique to agent-memory to avoid conflicts
+	// Note: SplitKey splits by '/' so /agent-memory/discovery/xxx -> namespace="agent-memory", path="discovery/xxx"
+	// We register under "agent-memory" namespace and handle validation in the validator
+	customValidator := libp2precord.NamespacedValidator{
+		"agent-memory": &discoveryValidator{},
+	}
+
+	// Use a custom protocol prefix so we can use our own validator
+	// This prefix should be unique to agent-memory to avoid conflicts
+	customPrefix := protocol.ID("/agent-memory/kad/1.0.0")
+
 	d, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeClient),
 		dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...),
+		dht.Validator(customValidator),
+		dht.ProtocolPrefix(customPrefix),
 	)
 	if err != nil {
 		h.Close()
@@ -216,3 +233,65 @@ func getDefaultRelayAddresses() []peer.AddrInfo {
 	}
 	return addrs
 }
+
+// discoveryValidator validates discovery records stored in the DHT.
+// It validates that the value is a valid JSON-serialized peer.AddrInfo.
+type discoveryValidator struct{}
+
+// Validate validates a discovery record.
+// For discovery records, we check that:
+// 1. The key path starts with "discovery/"
+// 2. The value is valid JSON
+func (v *discoveryValidator) Validate(key string, value []byte) error {
+	// Key format: /agent-memory/discovery/<hash>
+	// After SplitKey: namespace="agent-memory", path="discovery/<hash>"
+	_, path, err := libp2precord.SplitKey(key)
+	if err != nil {
+		return fmt.Errorf("invalid key format: %w", err)
+	}
+	// Check that the path starts with "discovery/"
+	if len(path) < len("discovery/") || path[:len("discovery/")] != "discovery/" {
+		return fmt.Errorf("key path does not match discovery format: %s", path)
+	}
+	if len(value) == 0 {
+		return errors.New("discovery record value is empty")
+	}
+	// Try to parse as JSON to validate it's well-formed
+	var info peer.AddrInfo
+	if err := json.Unmarshal(value, &info); err != nil {
+		return fmt.Errorf("discovery record is not valid JSON: %w", err)
+	}
+	return nil
+}
+
+// Select selects the best record from multiple records.
+// For discovery, we just pick the first one (they should be identical).
+func (v *discoveryValidator) Select(key string, values [][]byte) (int, error) {
+	if len(values) == 0 {
+		return 0, errors.New("no values to select from")
+	}
+	return 0, nil
+}
+
+// compile-time check that discoveryValidator implements libp2precord.Validator
+var _ libp2precord.Validator = (*discoveryValidator)(nil)
+
+// passthroughValidator is a validator that accepts any value for keys it doesn't care about.
+// It implements the Validator interface.
+type passthroughValidator struct{}
+
+// Validate accepts any value (passthrough for keys we don't validate).
+func (v *passthroughValidator) Validate(key string, value []byte) error {
+	return nil
+}
+
+// Select picks the first value (no-op for passthrough).
+func (v *passthroughValidator) Select(key string, values [][]byte) (int, error) {
+	if len(values) == 0 {
+		return 0, errors.New("no values to select from")
+	}
+	return 0, nil
+}
+
+// compile-time check that passthroughValidator implements libp2precord.Validator
+var _ libp2precord.Validator = (*passthroughValidator)(nil)
