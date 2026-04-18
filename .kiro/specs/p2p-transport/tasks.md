@@ -117,7 +117,7 @@
 
 ## 4. Validation: Testing
 
-- [ ] 4.1 Unit tests for host.go
+- [x] 4.1 Unit tests for host.go (committed in 2.1: 7 tests in host_test.go)
   - Test HKDF derivation: same secret → same peer ID; different secret → different peer ID
   - Test NewHost: valid inputs produce running host; invalid context produces error
   - Test host.Close: subsequent calls return error or are idempotent
@@ -125,7 +125,7 @@
   - _Requirements: 1.1, 13.1_
   - _Boundary: internal/p2p/host.go_
 
-- [ ] 4.2 Unit tests for discovery.go
+- [x] 4.2 Unit tests for discovery.go (committed in 2.2: 10 tests in discovery_test.go)
   - Test DHT key derivation is deterministic and secret-specific
   - Test FindPeers returns advertised peers (mock DHT)
   - Test Advertise writes correct AddrInfo to DHT
@@ -133,7 +133,7 @@
   - _Requirements: 2.1, 2.2, 3.1_
   - _Boundary: internal/p2p/discovery.go_
 
-- [ ] 4.3 Unit tests for p2pclient.go with mocked sub-components
+- [x] 4.3 Unit tests for p2pclient.go with mocked sub-components (committed in 2.5: 14 tests in p2pclient_test.go)
   - Mock Host, Discovery, BitSwap, Blockstore interfaces
   - Test Add calls blockstore.Put and bitswap.NotifyNewBlocks
   - Test Get checks blockstore first, then calls bitswap.GetBlock on miss
@@ -143,7 +143,7 @@
   - _Requirements: 5.1, 5.2, 7.1, 7.2_
   - _Boundary: internal/p2p/p2pclient.go_
 
-- [ ] 4.4 Integration test — two P2PClients with same secret discover and exchange blocks
+- [x] 4.4 Integration test — two P2PClients with same secret discover and exchange blocks
   - Create temp directory with two BadgerDS instances
   - Create two P2PClients with same secret, different data dirs
   - Verify: Add on client A produces CID; Get on client B retrieves same CID via bitswap
