@@ -194,6 +194,9 @@ func (s *Store) Read(filter Filter) ([]*Entry, error) {
 
 	var results []*Entry
 	for _, ie := range idx.Entries {
+		if ie.Removed {
+			continue
+		}
 		if !filter.Match(&ie) {
 			continue
 		}
@@ -225,6 +228,9 @@ func (s *Store) List(filter Filter) ([]IndexEntry, error) {
 
 	var results []IndexEntry
 	for _, ie := range idx.Entries {
+		if ie.Removed {
+			continue
+		}
 		if filter.Match(&ie) {
 			results = append(results, ie)
 		}
