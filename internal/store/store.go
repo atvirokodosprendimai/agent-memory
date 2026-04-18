@@ -62,6 +62,60 @@ type Index struct {
 	Entries map[string]IndexEntry `json:"entries"`
 }
 
+// Merge combines two indexes using LWW per entry ID and tombstone-wins semantics.
+// It is commutative, associative, and idempotent — satisfying CRDT requirements.
+func (idx Index) Merge(other Index) Index {
+	result := make(map[string]IndexEntry)
+
+	// Copy idx entries into result
+	for id, entry := range idx.Entries {
+		result[id] = entry
+	}
+
+	// Merge other entries with LWW tiebreak and tombstone-wins
+	for id, otherEntry := range other.Entries {
+		if existing, ok := result[id]; !ok {
+			// No existing entry — take otherEntry directly
+			result[id] = otherEntry
+		} else {
+			// Determine the winner using LWW + tombstone-wins
+			var winner IndexEntry
+
+			if existing.Removed && !otherEntry.Removed {
+				// Tombstone wins: existing is removed, other is not
+				winner = existing
+			} else if !existing.Removed && otherEntry.Removed {
+				// Tombstone wins: other is removed, existing is not
+				winner = otherEntry
+			} else {
+				// Neither or both are tombstones — use LWW
+				if otherEntry.Timestamp > existing.Timestamp {
+					winner = otherEntry
+				} else if otherEntry.Timestamp == existing.Timestamp && otherEntry.Source > existing.Source {
+					// Secondary tiebreak: deterministic order by Source string
+					winner = otherEntry
+				} else {
+					winner = existing
+				}
+			}
+
+			result[id] = winner
+		}
+	}
+
+	// Result Updated is the newer of the two Updated timestamps
+	resultUpdated := idx.Updated
+	if other.Updated > resultUpdated {
+		resultUpdated = other.Updated
+	}
+
+	return Index{
+		Version: idx.Version,
+		Updated: resultUpdated,
+		Entries: result,
+	}
+}
+
 // Store manages encrypted memory entries on IPFS.
 type Store struct {
 	cfg  *config.Config
