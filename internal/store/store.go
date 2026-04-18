@@ -118,9 +118,10 @@ func (idx Index) Merge(other Index) Index {
 
 // Store manages encrypted memory entries on IPFS.
 type Store struct {
-	cfg  *config.Config
-	keys *config.Keys
-	ipfs *ipfs.Client
+	cfg       *config.Config
+	keys      *config.Keys
+	ipfs      *ipfs.Client
+	loadedCID string // CID used when the in-memory index was loaded; compared against cfg.IndexCID to detect concurrent writes
 }
 
 // New creates a new Store from config and secret.
@@ -396,6 +397,7 @@ func (s *Store) addToIndex(entry *Entry, cid string) error {
 // loadIndex loads and decrypts the index from IPFS.
 func (s *Store) loadIndex() (*Index, error) {
 	if s.cfg.IndexCID == "" {
+		s.loadedCID = ""
 		return &Index{Version: 1, Entries: make(map[string]IndexEntry)}, nil
 	}
 
@@ -414,12 +416,29 @@ func (s *Store) loadIndex() (*Index, error) {
 		return nil, fmt.Errorf("parsing index: %w", err)
 	}
 
+	s.loadedCID = s.cfg.IndexCID
 	return &idx, nil
 }
 
 // saveIndex encrypts and pins the index, then updates the config.
+// It detects concurrent writes by comparing the CID used to load the
+// in-memory index (loadedCID) against the current cfg.IndexCID. If they
+// differ, the remote index is merged into the local one before saving.
 func (s *Store) saveIndex(idx *Index) error {
-	idxJSON, err := json.Marshal(idx)
+	merged := *idx
+
+	// Concurrent-write detection: if loadedCID differs from cfg.IndexCID,
+	// another agent wrote to the index since we loaded it.
+	if s.cfg.IndexCID != "" && s.loadedCID != s.cfg.IndexCID {
+		remote, err := s.loadIndex()
+		if err == nil {
+			// Merge local into remote: OR-Set union with LWW per key
+			merged = idx.Merge(*remote)
+		}
+		// If err != nil, proceed with local index — remote couldn't be loaded
+	}
+
+	idxJSON, err := json.Marshal(merged)
 	if err != nil {
 		return fmt.Errorf("marshaling index: %w", err)
 	}
@@ -435,6 +454,7 @@ func (s *Store) saveIndex(idx *Index) error {
 	}
 
 	s.cfg.IndexCID = cid
+	s.loadedCID = cid // reset loadedCID to new CID after successful save
 	configPath := configDir() + "/config.json"
 	return s.cfg.Save(configPath)
 }
