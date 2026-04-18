@@ -36,7 +36,8 @@ func TestHost_NewHost_Success(t *testing.T) {
 	}
 }
 
-// TestHost_SameSecret_SamePeerID tests that the same secret produces the same peer ID.
+// TestHost_SameSecret_SamePeerID tests that the same secret in different data dirs
+// produces different peer IDs (random per data dir, not derived from secret).
 func TestHost_SameSecret_SamePeerID(t *testing.T) {
 	ctx := context.Background()
 	secret := "consistent-secret-key"
@@ -55,8 +56,8 @@ func TestHost_SameSecret_SamePeerID(t *testing.T) {
 	}
 	defer h2.Close()
 
-	if h1.PeerID() != h2.PeerID() {
-		t.Errorf("Same secret produced different peer IDs: %s vs %s", h1.PeerID(), h2.PeerID())
+	if h1.PeerID() == h2.PeerID() {
+		t.Errorf("Same secret in different dirs produced same peer ID: %s", h1.PeerID())
 	}
 }
 

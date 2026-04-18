@@ -111,7 +111,8 @@ func TestP2PIntegration_TwoClientsDiscoverAndExchange(t *testing.T) {
 }
 
 // TestP2PIntegration_SameSecretSamePeerID verifies that two clients with the
-// same secret produce the same peer ID (HKDF derivation).
+// same secret but different data dirs produce different peer IDs.
+// Peer IDs are randomly generated and persisted per data dir.
 func TestP2PIntegration_SameSecretSamePeerID(t *testing.T) {
 	if os.Getenv("SKIP_P2P_INTEGRATION") == "true" {
 		t.Skip("SKIP_P2P_INTEGRATION is set")
@@ -140,7 +141,7 @@ func TestP2PIntegration_SameSecretSamePeerID(t *testing.T) {
 	idB, err := clientB.ID()
 	require.NoError(t, err)
 
-	assert.Equal(t, idA, idB, "Same secret should produce same peer ID")
+	assert.NotEqual(t, idA, idB, "Same secret in different dirs should produce different peer IDs")
 }
 
 // TestP2PIntegration_BlockPersistence verifies that blocks are persisted

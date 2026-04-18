@@ -4,7 +4,7 @@ package p2p
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +19,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
-	"golang.org/x/crypto/hkdf"
 )
 
 // ErrNotImplemented is returned when a function is not yet implemented.
@@ -44,8 +43,9 @@ type p2pHost struct {
 	id peer.ID
 }
 
-// NewHost creates a libp2p host backed by a peer ID derived from secret.
-// It enables circuit relay v2 and auto-relay with public bootstrap relays.
+// NewHost creates a libp2p host with a random peer ID.
+// The secret is used to derive the DHT discovery key (not the peer ID itself).
+// The host key persists in dataDir/p2p/hostkey across restarts.
 func NewHost(ctx context.Context, secret string, dataDir string) (Host, error) {
 	if secret == "" {
 		return nil, errors.New("p2p: secret cannot be empty")
@@ -57,26 +57,17 @@ func NewHost(ctx context.Context, secret string, dataDir string) (Host, error) {
 		return nil, errors.New("p2p: ctx cannot be nil")
 	}
 
-	// Derive peer ID from secret using HKDF-SHA256
-	privKey, err := deriveKeyFromSecret(secret)
-	if err != nil {
-		return nil, fmt.Errorf("p2p: deriving key from secret: %w", err)
-	}
-
-	// Ensure data directory exists
 	p2pDir := filepath.Join(dataDir, "p2p")
 	if err := os.MkdirAll(p2pDir, 0700); err != nil {
 		return nil, fmt.Errorf("p2p: creating p2p directory: %w", err)
 	}
 
-	// Try to load existing host key
 	hostKeyPath := filepath.Join(p2pDir, "hostkey")
-	privKey, err = loadOrCreateHostKey(hostKeyPath, privKey)
+	privKey, err := loadOrCreateHostKey(hostKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("p2p: loading host key: %w", err)
 	}
 
-	// Derive peer ID from the actual key
 	id, err := peer.IDFromPrivateKey(privKey)
 	if err != nil {
 		return nil, fmt.Errorf("p2p: deriving peer ID from key: %w", err)
@@ -85,11 +76,14 @@ func NewHost(ctx context.Context, secret string, dataDir string) (Host, error) {
 	// Get public bootstrap relay addresses
 	relayAddresses := getDefaultRelayAddresses()
 
-	// Create libp2p host with no listen addresses (works from NAT)
-	// Enable circuit relay v2 and auto-relay with public bootstrap relays
+	// Create libp2p host.
+	// Listen on loopback only — DHT needs a local address to function.
+	// External connectivity goes through circuit relay v2 auto-relay.
+	// NoListenAddrs is NOT used because DHT client mode requires listen addrs
+	// to connect to bootstrap peers and populate its routing table.
 	h, err := libp2p.New(
 		libp2p.Identity(privKey),
-		libp2p.NoListenAddrs,
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
 		libp2p.EnableRelay(),
 		libp2p.EnableAutoRelay(
 			autorelay.WithStaticRelays(relayAddresses),
@@ -115,13 +109,21 @@ func NewHost(ctx context.Context, secret string, dataDir string) (Host, error) {
 
 	d, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeClient),
-		dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...),
+		dht.BootstrapPeers(getDHTBootstrapPeers()...),
 		dht.Validator(customValidator),
 		dht.ProtocolPrefix(customPrefix),
 	)
 	if err != nil {
 		h.Close()
 		return nil, fmt.Errorf("p2p: creating DHT client: %w", err)
+	}
+
+	// Bootstrap the DHT to connect to bootstrap peers and populate routing table.
+	// This is required for the DHT client to be able to put/get values.
+	if err := d.Bootstrap(ctx); err != nil {
+		d.Close()
+		h.Close()
+		return nil, fmt.Errorf("p2p: bootstrapping DHT: %w", err)
 	}
 
 	return &p2pHost{
@@ -164,50 +166,32 @@ func (h *p2pHost) Close() error {
 	return nil
 }
 
-// deriveKeyFromSecret derives an Ed25519 private key from the secret using HKDF-SHA256.
-func deriveKeyFromSecret(secret string) (crypto.PrivKey, error) {
-	salt := []byte("agent-memory-peer-id")
-	info := []byte("v1")
-
-	// HKDF to derive key material
-	hkdfReader := hkdf.New(sha256.New, []byte(secret), salt, info)
-
-	// Generate Ed25519 key pair from HKDF output
-	_, privKeyBytes, err := ed25519.GenerateKey(hkdfReader)
-	if err != nil {
-		return nil, fmt.Errorf("ed25519 key generation: %w", err)
-	}
-
-	// Convert to libp2p crypto PrivKey
-	privKey, err := crypto.UnmarshalEd25519PrivateKey(privKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshaling ed25519 private key: %w", err)
-	}
-
-	return privKey, nil
-}
-
-// loadOrCreateHostKey loads a host key from disk or creates a new one.
-// If a key exists at path, it validates and returns it.
-// If no key exists, stores the provided key and returns it.
-func loadOrCreateHostKey(path string, privKey crypto.PrivKey) (crypto.PrivKey, error) {
-	// Try to load existing key
+// loadOrCreateHostKey loads a host key from disk or generates a new random one.
+// Each client gets a unique random peer ID, independent of the secret.
+// The secret is used only for DHT discovery key derivation (see computeDiscoveryKey).
+func loadOrCreateHostKey(path string) (crypto.PrivKey, error) {
+	// Try to load existing key (stored as raw 64-byte Ed25519 seed)
 	keyBytes, err := os.ReadFile(path)
-	if err == nil && len(keyBytes) > 0 {
+	if err == nil && len(keyBytes) == ed25519.PrivateKeySize {
 		privKey, err := crypto.UnmarshalEd25519PrivateKey(keyBytes)
 		if err == nil {
 			return privKey, nil
 		}
-		// If unmarshal fails, generate new key below
 	}
 
-	// No key exists or invalid - store the derived key
-	privKeyBytes, err := crypto.MarshalPrivateKey(privKey)
+	// No valid key on disk — generate a fresh random Ed25519 key
+	_, seed, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling private key: %w", err)
+		return nil, fmt.Errorf("generating ed25519 key: %w", err)
 	}
 
-	if err := os.WriteFile(path, privKeyBytes, 0600); err != nil {
+	privKey, err := crypto.UnmarshalEd25519PrivateKey(seed)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshaling ed25519 private key: %w", err)
+	}
+
+	// Persist the raw seed so restarts use the same peer ID
+	if err := os.WriteFile(path, seed, 0600); err != nil {
 		return nil, fmt.Errorf("writing host key to disk: %w", err)
 	}
 
@@ -215,23 +199,46 @@ func loadOrCreateHostKey(path string, privKey crypto.PrivKey) (crypto.PrivKey, e
 }
 
 // getDefaultRelayAddresses returns the default public libp2p circuit relay v2 addresses.
+// Uses regional relay hostnames that resolve via DNS (am6, ny5, sg1, sv15).
+// Note: bootstrap.libp2p.io does not resolve on all networks.
 func getDefaultRelayAddresses() []peer.AddrInfo {
-	// Use known public libp2p bootstrap relays
-	// These are the official libp2p project public relays
-	defaultRelays := []string{
-		"/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLGSQJfedviPkCMnpSWxNetLnk",
-		"/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
-		"/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+	relayAddresses := []string{
+		"/dnsaddr/am6.bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+		"/dnsaddr/ny5.bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+		"/dnsaddr/sg1.bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+		"/dnsaddr/sv15.bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
 	}
 
 	var addrs []peer.AddrInfo
-	for _, addrStr := range defaultRelays {
+	for _, addrStr := range relayAddresses {
 		addr, err := peer.AddrInfoFromString(addrStr)
 		if err == nil {
 			addrs = append(addrs, *addr)
 		}
 	}
 	return addrs
+}
+
+// getDHTBootstrapPeers returns DHT bootstrap peers using regional hostnames.
+// dht.GetDefaultBootstrapPeerAddrInfos() fails to resolve bootstrap.libp2p.io
+// on some networks (Go's DNS resolver can't resolve dnsaddr TXT records).
+// We use the regional hostnames which do resolve.
+func getDHTBootstrapPeers() []peer.AddrInfo {
+	bootstrapPeers := []string{
+		"/ip4/54.38.47.166/tcp/4001/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+		"/ip4/51.81.93.51/tcp/4001/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+		"/ip4/15.235.144.210/tcp/4001/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+		"/ip4/147.135.44.132/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+	}
+
+	var peers []peer.AddrInfo
+	for _, addrStr := range bootstrapPeers {
+		addr, err := peer.AddrInfoFromString(addrStr)
+		if err == nil {
+			peers = append(peers, *addr)
+		}
+	}
+	return peers
 }
 
 // discoveryValidator validates discovery records stored in the DHT.

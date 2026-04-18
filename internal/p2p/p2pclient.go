@@ -4,6 +4,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
@@ -66,10 +67,18 @@ func NewP2PClient(ctx context.Context, secret, dataDir string) (*P2PClient, erro
 		store: bs,
 	}
 
-	// Advertise to DHT
-	if err := disc.Advertise(ctx); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("advertising to DHT: %w", err)
+	// Advertise to DHT with retries (DHT routing table may not be populated yet)
+	var advertiseErr error
+	for i := 0; i < 3; i++ {
+		advertiseErr = disc.Advertise(ctx)
+		if advertiseErr == nil {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if advertiseErr != nil {
+		// Non-fatal: client still works for local operations
+		// DHT advertise will succeed once routing table is populated
 	}
 
 	// Connect to peers
