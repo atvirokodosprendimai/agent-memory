@@ -378,6 +378,13 @@ func (s *Store) addToIndex(entry *Entry, cid string) error {
 	return s.saveIndex(idx)
 }
 
+// indexBackwardCompat is a helper struct for migrating old slice format to new map format.
+type indexBackwardCompat struct {
+	Version int          `json:"version"`
+	Updated string       `json:"updated"`
+	Entries []IndexEntry `json:"entries"`
+}
+
 // loadIndex loads and decrypts the index from IPFS.
 func (s *Store) loadIndex() (*Index, error) {
 	if s.cfg.IndexCID == "" {
@@ -395,9 +402,35 @@ func (s *Store) loadIndex() (*Index, error) {
 		return nil, fmt.Errorf("decrypting index: %w", err)
 	}
 
-	var idx Index
-	if err := json.Unmarshal(plaintext, &idx); err != nil {
+	// Probe raw JSON to detect if "entries" is a JSON array (old format) or object (new format).
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(plaintext, &raw); err != nil {
 		return nil, fmt.Errorf("parsing index: %w", err)
+	}
+
+	var idx Index
+	if entriesRaw, ok := raw["entries"]; ok {
+		if entriesRaw[0] == '[' {
+			// Old slice format detected — migrate to map format.
+			var compat indexBackwardCompat
+			if err := json.Unmarshal(plaintext, &compat); err != nil {
+				return nil, fmt.Errorf("parsing old index format: %w", err)
+			}
+			idx.Version = 1
+			idx.Updated = compat.Updated
+			idx.Entries = make(map[string]IndexEntry, len(compat.Entries))
+			for _, entry := range compat.Entries {
+				idx.Entries[entry.ID] = entry
+			}
+		} else if entriesRaw[0] == '{' {
+			// New map format — normal unmarshal.
+			if err := json.Unmarshal(plaintext, &idx); err != nil {
+				return nil, fmt.Errorf("parsing index: %w", err)
+			}
+		}
+	} else {
+		// No "entries" field — treat as empty index.
+		idx = Index{Version: 1, Entries: make(map[string]IndexEntry)}
 	}
 
 	s.loadedCID = s.cfg.IndexCID
