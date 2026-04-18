@@ -6,6 +6,7 @@
 package store
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"github.com/atvirokodosprendimai/agent-memory/internal/config"
 	"github.com/atvirokodosprendimai/agent-memory/internal/crypto"
 	"github.com/atvirokodosprendimai/agent-memory/internal/ipfs"
+	p2p_pkg "github.com/atvirokodosprendimai/agent-memory/internal/p2p"
 )
 
 // StorageClient is the interface for IPFS storage operations.
@@ -137,12 +139,42 @@ type Store struct {
 }
 
 // New creates a new Store from config and secret.
+// It selects the storage backend based on cfg.P2PEnabled:
+//   - true:  creates a P2PClient for pure-Go P2P transport
+//   - false: creates an ipfs.Client for Kubo daemon transport
 func New(cfg *config.Config, secret string) (*Store, error) {
 	keys, err := cfg.GetKeys(secret)
 	if err != nil {
 		return nil, fmt.Errorf("deriving keys: %w", err)
 	}
-	client := ipfs.NewClient(cfg.IPFSAddr)
+
+	var client StorageClient
+	if cfg.P2PEnabled {
+		client, err = p2p_pkg.NewP2PClient(context.Background(), secret, cfg.DataDir)
+		if err != nil {
+			return nil, fmt.Errorf("creating P2P client: %w", err)
+		}
+	} else {
+		client = ipfs.NewClient(cfg.IPFSAddr)
+	}
+
+	return &Store{cfg: cfg, keys: keys, client: client}, nil
+}
+
+// NewWithP2P creates a new Store backed by a P2PClient.
+// Use this when you need to pass a specific context (e.g., for cancellation).
+// It ignores cfg.P2PEnabled and always creates a P2PClient.
+func NewWithP2P(ctx context.Context, cfg *config.Config, secret string) (*Store, error) {
+	keys, err := cfg.GetKeys(secret)
+	if err != nil {
+		return nil, fmt.Errorf("deriving keys: %w", err)
+	}
+
+	client, err := p2p_pkg.NewP2PClient(ctx, secret, cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("creating P2P client: %w", err)
+	}
+
 	return &Store{cfg: cfg, keys: keys, client: client}, nil
 }
 
@@ -151,8 +183,15 @@ func (s *Store) Close() error {
 	return s.client.Close()
 }
 
-// IPFSClient returns the underlying IPFS client.
+// IPFSClient returns the underlying Kubo IPFS client.
+// It returns nil when the P2P backend is in use.
 func (s *Store) IPFSClient() *ipfs.Client {
+	if s.client == nil {
+		return nil
+	}
+	if p2pClient, ok := s.client.(*p2p_pkg.P2PClient); ok && p2pClient != nil {
+		return nil
+	}
 	return s.client.(*ipfs.Client)
 }
 
