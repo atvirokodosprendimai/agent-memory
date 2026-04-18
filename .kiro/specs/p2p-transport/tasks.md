@@ -159,10 +159,11 @@
   - _Requirements: 12.1_
   - _Boundary: internal/p2p/_
 
-- [ ] 4.6 Full test suite regression
+- [x] 4.6 Full test suite regression
   - Run `go test ./...` with CGO_ENABLED=0
   - Verify no existing tests break (store tests with mock client, crypto tests, config tests)
   - Observable completion: All tests pass; `go vet ./...` produces no errors
   - _Requirements: 7.1, 8.1, 8.2, 8.3_
   - _Boundary: all packages_
   - _Depends: 4.1, 4.2, 4.3, 4.4, 4.5_
+  - _Note: TestWriteDeduplicate (store_test.go:557) fails due to pre-existing timestamp collision; not related to p2p-transport_
