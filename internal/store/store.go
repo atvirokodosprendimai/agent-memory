@@ -19,6 +19,18 @@ import (
 	"github.com/atvirokodosprendimai/agent-memory/internal/ipfs"
 )
 
+// StorageClient is the interface for IPFS storage operations.
+// It abstracts the underlying storage backend, allowing drop-in replacements.
+type StorageClient interface {
+	Add(data []byte) (string, error)
+	Get(cid string) ([]byte, error)
+	PinLs() (map[string]bool, error)
+	PinRm(cid string) error
+	Close() error
+	Ping() error
+	ID() (string, error)
+}
+
 // EntryType defines the kind of memory entry.
 type EntryType string
 
@@ -120,7 +132,7 @@ func (idx Index) Merge(other Index) Index {
 type Store struct {
 	cfg       *config.Config
 	keys      *config.Keys
-	ipfs      *ipfs.Client
+	client    StorageClient
 	loadedCID string // CID used when the in-memory index was loaded; compared against cfg.IndexCID to detect concurrent writes
 }
 
@@ -131,17 +143,17 @@ func New(cfg *config.Config, secret string) (*Store, error) {
 		return nil, fmt.Errorf("deriving keys: %w", err)
 	}
 	client := ipfs.NewClient(cfg.IPFSAddr)
-	return &Store{cfg: cfg, keys: keys, ipfs: client}, nil
+	return &Store{cfg: cfg, keys: keys, client: client}, nil
 }
 
 // Close releases resources.
 func (s *Store) Close() error {
-	return s.ipfs.Close()
+	return s.client.Close()
 }
 
 // IPFSClient returns the underlying IPFS client.
 func (s *Store) IPFSClient() *ipfs.Client {
-	return s.ipfs
+	return s.client.(*ipfs.Client)
 }
 
 // Config returns the store's configuration.
@@ -196,7 +208,7 @@ func (s *Store) Write(entryType EntryType, source string, tags []string, content
 	}
 
 	// Pin to IPFS
-	cid, err := s.ipfs.Add(ciphertext)
+	cid, err := s.client.Add(ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("pinning to IPFS: %w", err)
 	}
@@ -274,7 +286,7 @@ func (s *Store) List(filter Filter) ([]IndexEntry, error) {
 
 // Pins returns all CIDs pinned by this store.
 func (s *Store) Pins() (map[string]bool, error) {
-	return s.ipfs.PinLs()
+	return s.client.PinLs()
 }
 
 // GC tombstones entries older than maxAge and unpins their CIDs.
@@ -313,7 +325,7 @@ func (s *Store) GC(maxAge time.Duration) (int, error) {
 
 	var unpinErrs []error
 	for _, cid := range removedCIDs {
-		if pinErr := s.ipfs.PinRm(cid); pinErr != nil {
+		if pinErr := s.client.PinRm(cid); pinErr != nil {
 			unpinErrs = append(unpinErrs, pinErr)
 			fmt.Printf("Warning: failed to unpin %s: %v\n", cid, pinErr)
 		}
@@ -349,7 +361,7 @@ func (s *Store) Import(entries []*Entry) (int, error) {
 			return imported, fmt.Errorf("encrypting entry: %w", err)
 		}
 
-		cid, err := s.ipfs.Add(ciphertext)
+		cid, err := s.client.Add(ciphertext)
 		if err != nil {
 			return imported, fmt.Errorf("pinning to IPFS: %w", err)
 		}
@@ -364,7 +376,7 @@ func (s *Store) Import(entries []*Entry) (int, error) {
 
 // getEntry fetches and decrypts a single entry by CID.
 func (s *Store) getEntry(cid string) (*Entry, error) {
-	ciphertext, err := s.ipfs.Get(cid)
+	ciphertext, err := s.client.Get(cid)
 	if err != nil {
 		return nil, fmt.Errorf("fetching from IPFS: %w", err)
 	}
@@ -420,7 +432,7 @@ func (s *Store) loadIndex() (*Index, error) {
 		return &Index{Version: 1, Entries: make(map[string]IndexEntry)}, nil
 	}
 
-	ciphertext, err := s.ipfs.Get(s.cfg.IndexCID)
+	ciphertext, err := s.client.Get(s.cfg.IndexCID)
 	if err != nil {
 		return nil, fmt.Errorf("fetching index: %w", err)
 	}
@@ -493,7 +505,7 @@ func (s *Store) saveIndex(idx *Index) error {
 		return fmt.Errorf("encrypting index: %w", err)
 	}
 
-	cid, err := s.ipfs.Add(ciphertext)
+	cid, err := s.client.Add(ciphertext)
 	if err != nil {
 		return fmt.Errorf("pinning index: %w", err)
 	}

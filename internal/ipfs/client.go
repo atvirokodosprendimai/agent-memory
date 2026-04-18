@@ -187,3 +187,29 @@ func (c *Client) Close() error {
 	c.client.CloseIdleConnections()
 	return nil
 }
+
+// idResponse represents the JSON response from /api/v0/id.
+type idResponse struct {
+	ID string `json:"ID"`
+}
+
+// ID returns the peer ID of the IPFS daemon.
+func (c *Client) ID() (string, error) {
+	resp, err := c.post("/api/v0/id", "", nil)
+	if err != nil {
+		return "", fmt.Errorf("id request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("id failed: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result idResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decoding id response: %w", err)
+	}
+
+	return result.ID, nil
+}
