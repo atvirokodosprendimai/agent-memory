@@ -139,6 +139,31 @@ func (s *Store) Close() error {
 	return s.ipfs.Close()
 }
 
+// IPFSClient returns the underlying IPFS client.
+func (s *Store) IPFSClient() *ipfs.Client {
+	return s.ipfs
+}
+
+// Config returns the store's configuration.
+func (s *Store) Config() *config.Config {
+	return s.cfg
+}
+
+// EntryCount returns the number of non-removed entries in the index.
+func (s *Store) EntryCount() (int, error) {
+	idx, err := s.loadIndex()
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, ie := range idx.Entries {
+		if !ie.Removed {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // Write creates an encrypted memory entry and pins it to IPFS.
 func (s *Store) Write(entryType EntryType, source string, tags []string, content string, metadata map[string]any) (*Entry, error) {
 	now := time.Now().UTC().Format(time.RFC3339)

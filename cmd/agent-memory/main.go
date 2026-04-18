@@ -79,6 +79,11 @@ func main() {
 		}
 	case "version":
 		fmt.Println("agent-memory v0.1.0-dev")
+	case "skill":
+		if err := runSkill(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -102,6 +107,7 @@ Usage:
   agent-memory gc                Remove old entries (unpin + rebuild index)
   agent-memory export            Export entries as JSONL
   agent-memory import            Import entries from JSONL
+  agent-memory skill <cmd>       Skill commands (load|unload)
   agent-memory version           Print version
 
 Common flags:

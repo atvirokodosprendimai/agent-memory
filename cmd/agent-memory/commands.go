@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atvirokodosprendimai/agent-memory/cmd/agent-memory/skills/shared_memory"
 	"github.com/atvirokodosprendimai/agent-memory/internal/config"
 	"github.com/atvirokodosprendimai/agent-memory/internal/ipfs"
 	"github.com/atvirokodosprendimai/agent-memory/internal/store"
@@ -498,4 +499,52 @@ func runImport(cfg *config.Config) error {
 
 	fmt.Printf("Imported %d entries from %s\n", imported, input)
 	return nil
+}
+
+func parseSkillFlags(args []string) (subcommand, skillName, secret, source string) {
+	fs := flag.NewFlagSet("skill", flag.ExitOnError)
+	fs.StringVar(&secret, "secret", "", "Shared secret for skill initialization")
+	fs.StringVar(&source, "source", "opencode-agent", "Source identifier for this agent")
+	fs.Parse(args)
+	if fs.NArg() < 1 {
+		return "", "", "", ""
+	}
+	return fs.Arg(0), fs.Arg(1), secret, source
+}
+
+func runSkill(cfg *config.Config) error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("usage: agent-memory skill <load|unload> <skill-name> [--secret <secret>] [--source <source>]")
+	}
+
+	subcommand, skillName, secret, source := parseSkillFlags(os.Args[3:])
+
+	switch subcommand {
+	case "load":
+		if skillName != "shared-memory-skill" {
+			return fmt.Errorf("unknown skill %q", skillName)
+		}
+		sessionID := os.Getenv("AGENT_MEMORY_SESSION_ID")
+		if sessionID == "" {
+			sessionID = "default"
+		}
+		if err := shared_memory.InitSession(sessionID, secret, source); err != nil {
+			return err
+		}
+		fmt.Printf("Skill %q loaded (session=%s).\n", skillName, sessionID)
+		return nil
+	case "unload":
+		if skillName != "shared-memory-skill" {
+			return fmt.Errorf("unknown skill %q", skillName)
+		}
+		sessionID := os.Getenv("AGENT_MEMORY_SESSION_ID")
+		if sessionID == "" {
+			sessionID = "default"
+		}
+		shared_memory.CloseSession(sessionID)
+		fmt.Printf("Skill %q unloaded.\n", skillName)
+		return nil
+	default:
+		return fmt.Errorf("unknown skill subcommand %q (use 'load' or 'unload')", subcommand)
+	}
 }
