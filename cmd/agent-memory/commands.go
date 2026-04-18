@@ -502,14 +502,19 @@ func runImport(cfg *config.Config) error {
 }
 
 func parseSkillFlags(args []string) (subcommand, skillName, secret, source string) {
-	fs := flag.NewFlagSet("skill", flag.ExitOnError)
-	fs.StringVar(&secret, "secret", "", "Shared secret for skill initialization")
-	fs.StringVar(&source, "source", "opencode-agent", "Source identifier for this agent")
-	fs.Parse(args)
-	if fs.NArg() < 1 {
+	if len(args) < 2 {
 		return "", "", "", ""
 	}
-	return fs.Arg(0), fs.Arg(1), secret, source
+	subcommand = args[0]
+	skillName = args[1]
+	secretVal := ""
+	sourceVal := "opencode-agent"
+	rest := args[2:]
+	fs := flag.NewFlagSet("skill", flag.ContinueOnError)
+	fs.StringVar(&secretVal, "secret", "", "Shared secret for skill initialization")
+	fs.StringVar(&sourceVal, "source", "opencode-agent", "Source identifier for this agent")
+	fs.Parse(rest)
+	return subcommand, skillName, secretVal, sourceVal
 }
 
 func runSkill(cfg *config.Config) error {
@@ -517,7 +522,7 @@ func runSkill(cfg *config.Config) error {
 		return fmt.Errorf("usage: agent-memory skill <load|unload> <skill-name> [--secret <secret>] [--source <source>]")
 	}
 
-	subcommand, skillName, secret, source := parseSkillFlags(os.Args[3:])
+	subcommand, skillName, secret, source := parseSkillFlags(os.Args[2:])
 
 	switch subcommand {
 	case "load":
