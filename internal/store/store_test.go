@@ -62,6 +62,214 @@ func TestNormalizeTags(t *testing.T) {
 	}
 }
 
+// --- Merge CRDT property tests ---
+
+func TestMerge_Commutative(t *testing.T) {
+	// a.Merge(b) must equal b.Merge(a) for arbitrary a, b
+	a := Index{
+		Updated: "2026-04-12T10:00:00Z",
+		Entries: map[string]IndexEntry{
+			"id1": {ID: "id1", CID: "cid1", Type: "decision", Tags: []string{"a"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agent1", ContentPreview: "content a", Removed: false},
+			"id2": {ID: "id2", CID: "cid2", Type: "learning", Tags: []string{"b"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agent1", ContentPreview: "content b", Removed: false},
+		},
+	}
+	b := Index{
+		Updated: "2026-04-12T11:00:00Z",
+		Entries: map[string]IndexEntry{
+			"id3": {ID: "id3", CID: "cid3", Type: "observation", Tags: []string{"c"}, Timestamp: "2026-04-12T11:00:00Z", Source: "agent2", ContentPreview: "content c", Removed: false},
+			"id4": {ID: "id4", CID: "cid4", Type: "trace", Tags: []string{"d"}, Timestamp: "2026-04-12T11:00:00Z", Source: "agent2", ContentPreview: "content d", Removed: false},
+		},
+	}
+
+	gotAB := a.Merge(b)
+	gotBA := b.Merge(a)
+
+	if len(gotAB.Entries) != len(gotBA.Entries) {
+		t.Fatalf("a.Merge(b) len=%d, b.Merge(a) len=%d", len(gotAB.Entries), len(gotBA.Entries))
+	}
+	for id := range gotAB.Entries {
+		if _, ok := gotBA.Entries[id]; !ok {
+			t.Errorf("entry %s missing from b.Merge(a)", id)
+		}
+	}
+}
+
+func TestMerge_Associative(t *testing.T) {
+	// (a.Merge(b)).Merge(c) must equal a.Merge((b.Merge(c)))
+	a := Index{
+		Updated: "2026-04-12T10:00:00Z",
+		Entries: map[string]IndexEntry{
+			"id1": {ID: "id1", CID: "cid1", Type: "decision", Tags: []string{"a"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agent1", ContentPreview: "content a", Removed: false},
+		},
+	}
+	b := Index{
+		Updated: "2026-04-12T11:00:00Z",
+		Entries: map[string]IndexEntry{
+			"id2": {ID: "id2", CID: "cid2", Type: "learning", Tags: []string{"b"}, Timestamp: "2026-04-12T11:00:00Z", Source: "agent1", ContentPreview: "content b", Removed: false},
+		},
+	}
+	c := Index{
+		Updated: "2026-04-12T12:00:00Z",
+		Entries: map[string]IndexEntry{
+			"id3": {ID: "id3", CID: "cid3", Type: "observation", Tags: []string{"c"}, Timestamp: "2026-04-12T12:00:00Z", Source: "agent2", ContentPreview: "content c", Removed: false},
+		},
+	}
+
+	gotLeft := a.Merge(b).Merge(c)
+	gotRight := a.Merge(b.Merge(c))
+
+	if len(gotLeft.Entries) != len(gotRight.Entries) {
+		t.Fatalf("(a.Merge(b)).Merge(c) len=%d, a.Merge((b.Merge(c))) len=%d", len(gotLeft.Entries), len(gotRight.Entries))
+	}
+	for id, entry := range gotLeft.Entries {
+		if rightEntry, ok := gotRight.Entries[id]; !ok {
+			t.Errorf("entry %s missing from right merge", id)
+		} else {
+			if entry.Timestamp != rightEntry.Timestamp {
+				t.Errorf("entry %s timestamp mismatch: left=%s right=%s", id, entry.Timestamp, rightEntry.Timestamp)
+			}
+			if entry.Removed != rightEntry.Removed {
+				t.Errorf("entry %s Removed mismatch: left=%v right=%v", id, entry.Removed, rightEntry.Removed)
+			}
+		}
+	}
+}
+
+func TestMerge_Idempotent(t *testing.T) {
+	// a.Merge(a) must equal a
+	a := Index{
+		Updated: "2026-04-12T10:00:00Z",
+		Entries: map[string]IndexEntry{
+			"id1": {ID: "id1", CID: "cid1", Type: "decision", Tags: []string{"a"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agent1", ContentPreview: "content a", Removed: false},
+			"id2": {ID: "id2", CID: "cid2", Type: "learning", Tags: []string{"b"}, Timestamp: "2026-04-12T11:00:00Z", Source: "agent2", ContentPreview: "content b", Removed: false},
+		},
+	}
+
+	got := a.Merge(a)
+	if len(got.Entries) != len(a.Entries) {
+		t.Fatalf("a.Merge(a) len=%d, want %d", len(got.Entries), len(a.Entries))
+	}
+	for id, entry := range got.Entries {
+		if orig, ok := a.Entries[id]; !ok {
+			t.Errorf("extra entry %s in a.Merge(a)", id)
+		} else {
+			if entry.Timestamp != orig.Timestamp {
+				t.Errorf("entry %s timestamp changed: %s -> %s", id, orig.Timestamp, entry.Timestamp)
+			}
+			if entry.Removed != orig.Removed {
+				t.Errorf("entry %s Removed changed: %v -> %v", id, orig.Removed, entry.Removed)
+			}
+		}
+	}
+}
+
+func TestMerge_LWWWins(t *testing.T) {
+	// Same ID in both indexes — newer timestamp wins
+	a := Index{
+		Updated: "2026-04-12T10:00:00Z",
+		Entries: map[string]IndexEntry{
+			"shared": {ID: "shared", CID: "cid-old", Type: "decision", Tags: []string{"tag"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agent1", ContentPreview: "old content", Removed: false},
+		},
+	}
+	b := Index{
+		Updated: "2026-04-12T12:00:00Z",
+		Entries: map[string]IndexEntry{
+			"shared": {ID: "shared", CID: "cid-new", Type: "decision", Tags: []string{"tag"}, Timestamp: "2026-04-12T12:00:00Z", Source: "agent1", ContentPreview: "new content", Removed: false},
+		},
+	}
+
+	got := a.Merge(b)
+	entry, ok := got.Entries["shared"]
+	if !ok {
+		t.Fatal("shared entry missing after merge")
+	}
+	if entry.Timestamp != "2026-04-12T12:00:00Z" {
+		t.Errorf("expected newer timestamp, got %s", entry.Timestamp)
+	}
+	if entry.CID != "cid-new" {
+		t.Errorf("expected cid-new, got %s", entry.CID)
+	}
+}
+
+func TestMerge_TombstoneWins(t *testing.T) {
+	// When one side has Removed:true and other has Removed:false, tombstone wins
+	t.Run("a_has_tombstone_b_has_active", func(t *testing.T) {
+		a := Index{
+			Updated: "2026-04-12T10:00:00Z",
+			Entries: map[string]IndexEntry{
+				"shared": {ID: "shared", CID: "cid1", Type: "decision", Tags: []string{"tag"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agent1", ContentPreview: "content", Removed: true},
+			},
+		}
+		b := Index{
+			Updated: "2026-04-12T11:00:00Z",
+			Entries: map[string]IndexEntry{
+				"shared": {ID: "shared", CID: "cid2", Type: "decision", Tags: []string{"tag"}, Timestamp: "2026-04-12T11:00:00Z", Source: "agent2", ContentPreview: "content", Removed: false},
+			},
+		}
+
+		got := a.Merge(b)
+		entry, ok := got.Entries["shared"]
+		if !ok {
+			t.Fatal("shared entry missing after merge")
+		}
+		if !entry.Removed {
+			t.Errorf("expected tombstone to win, got Removed=false")
+		}
+	})
+
+	t.Run("b_has_tombstone_a_has_active", func(t *testing.T) {
+		a := Index{
+			Updated: "2026-04-12T10:00:00Z",
+			Entries: map[string]IndexEntry{
+				"shared": {ID: "shared", CID: "cid1", Type: "decision", Tags: []string{"tag"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agent1", ContentPreview: "content", Removed: false},
+			},
+		}
+		b := Index{
+			Updated: "2026-04-12T11:00:00Z",
+			Entries: map[string]IndexEntry{
+				"shared": {ID: "shared", CID: "cid2", Type: "decision", Tags: []string{"tag"}, Timestamp: "2026-04-12T11:00:00Z", Source: "agent2", ContentPreview: "content", Removed: true},
+			},
+		}
+
+		got := a.Merge(b)
+		entry, ok := got.Entries["shared"]
+		if !ok {
+			t.Fatal("shared entry missing after merge")
+		}
+		if !entry.Removed {
+			t.Errorf("expected tombstone to win, got Removed=false")
+		}
+	})
+}
+
+func TestMerge_ConcurrentWrites(t *testing.T) {
+	// Two agents write different entries simultaneously — both present after merge
+	agentA := Index{
+		Updated: "2026-04-12T10:00:00Z",
+		Entries: map[string]IndexEntry{
+			"entryA": {ID: "entryA", CID: "cidA", Type: "decision", Tags: []string{"agent-a"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agentA", ContentPreview: "decision from A", Removed: false},
+		},
+	}
+	agentB := Index{
+		Updated: "2026-04-12T10:00:00Z",
+		Entries: map[string]IndexEntry{
+			"entryB": {ID: "entryB", CID: "cidB", Type: "learning", Tags: []string{"agent-b"}, Timestamp: "2026-04-12T10:00:00Z", Source: "agentB", ContentPreview: "learning from B", Removed: false},
+		},
+	}
+
+	got := agentA.Merge(agentB)
+
+	if len(got.Entries) != 2 {
+		t.Fatalf("expected 2 entries after merge, got %d", len(got.Entries))
+	}
+	if _, ok := got.Entries["entryA"]; !ok {
+		t.Error("entryA missing after merge")
+	}
+	if _, ok := got.Entries["entryB"]; !ok {
+		t.Error("entryB missing after merge")
+	}
+}
+
 func TestPreview(t *testing.T) {
 	tests := []struct {
 		name   string
