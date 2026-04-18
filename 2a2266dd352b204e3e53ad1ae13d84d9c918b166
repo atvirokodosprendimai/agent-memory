@@ -1,0 +1,94 @@
+internal/store/store_test.go
+  e2bc510f525266bf 319,346,369-370,402,597
+cmd/agent-memory/main.go
+  e2bc510f525266bf 143-144
+internal/config/config.go
+  e2bc510f525266bf 35-41,57-62,64-66,77-85,91,107-111,113-118
+internal/config/config_test.go
+  e2bc510f525266bf 30,91,111,164,186-187,205,213-261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "2a2266dd352b204e3e53ad1ae13d84d9c918b166",
+  "prompts": {
+    "447b6732b3f2e108": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_2610a6f79ffeB51M1cobLBndjz",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 76,
+      "overriden_lines": 0
+    },
+    "8394cf801a167f9a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_261098b6bffe1aqhVuJTWhobzU",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 232,
+      "overriden_lines": 0
+    },
+    "8b04d1b28d5b51c9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_262b55c50ffekXaacHx5SAnlsa",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 2031,
+      "overriden_lines": 0
+    },
+    "a71424ecf1436853": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_25dd6251effeY178s9krNgN6Sb",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "c7dd459f543dd598": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_262b7a645ffe1h7skqBKgVHiBh",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    },
+    "e2bc510f525266bf": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_25dd437cbffeT8u41TBul3E01k",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 214,
+      "total_deletions": 108,
+      "accepted_lines": 138,
+      "overriden_lines": 0
+    }
+  }
+}
