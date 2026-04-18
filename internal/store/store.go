@@ -362,23 +362,7 @@ func (s *Store) addToIndex(entry *Entry, cid string) error {
 		idx = &Index{Version: 1, Entries: make(map[string]IndexEntry)}
 	}
 
-	// Check for duplicate ID
-	if _, exists := idx.Entries[entry.ID]; exists {
-		// Update existing entry
-		idx.Entries[entry.ID] = IndexEntry{
-			ID:             entry.ID,
-			CID:            cid,
-			Type:           string(entry.Type),
-			Tags:           entry.Tags,
-			Timestamp:      entry.Timestamp,
-			Source:         entry.Source,
-			ContentPreview: preview(entry.Content, 120),
-			Removed:        false,
-		}
-		return s.saveIndex(idx)
-	}
-
-	// Insert new entry
+	// Upsert: map assignment handles both insert and update — no duplicate scan needed
 	idx.Entries[entry.ID] = IndexEntry{
 		ID:             entry.ID,
 		CID:            cid,
