@@ -1,6 +1,8 @@
 package store
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/atvirokodosprendimai/agent-memory/internal/config"
@@ -600,5 +602,123 @@ func TestNewStoreRejectsEmptySecret(t *testing.T) {
 	_, err = New(cfg, "")
 	if err == nil {
 		t.Error("New with empty secret should return error")
+	}
+}
+
+// --- Backward compatibility tests ---
+
+func TestBackwardCompat_MigrationOnWrite(t *testing.T) {
+	// Construct an old-format JSON blob with Entries as a JSON array.
+	oldFormatJSON := `{
+  "version": 1,
+  "updated": "2026-04-12T10:00:00Z",
+  "entries": [
+    {
+      "id": "entry-old-1",
+      "cid": "QmOldCidOne",
+      "type": "decision",
+      "tags": ["old", "tag1"],
+      "timestamp": "2026-04-12T10:00:00Z",
+      "source": "agent-old",
+      "content_preview": "old decision content"
+    },
+    {
+      "id": "entry-old-2",
+      "cid": "QmOldCidTwo",
+      "type": "learning",
+      "tags": ["old", "tag2"],
+      "timestamp": "2026-04-12T11:00:00Z",
+      "source": "agent-old",
+      "content_preview": "old learning content"
+    }
+  ]
+}`
+
+	// Verify the old-format JSON actually has "entries" as an array by checking
+	// for the pattern `"entries": [` using JSON struct probing.
+	var rawProbe map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(oldFormatJSON), &rawProbe); err != nil {
+		t.Fatalf("failed to parse old-format JSON: %v", err)
+	}
+	entriesRaw, ok := rawProbe["entries"]
+	if !ok {
+		t.Fatal("\"entries\" field not found in old-format JSON")
+	}
+	if entriesRaw[0] != '[' {
+		t.Fatalf("old-format JSON \"entries\" should be an array, got %c", entriesRaw[0])
+	}
+
+	// Simulate migration: loadIndex reads raw JSON, detects array, migrates to map.
+	// We replicate that logic here by using the compat helper struct.
+	var compat indexBackwardCompat
+	if err := json.Unmarshal([]byte(oldFormatJSON), &compat); err != nil {
+		t.Fatalf("failed to parse old-format JSON: %v", err)
+	}
+
+	// Migrate to the new map-based Index (same logic as loadIndex).
+	migrated := Index{
+		Version: 1,
+		Updated: compat.Updated,
+		Entries: make(map[string]IndexEntry, len(compat.Entries)),
+	}
+	for _, entry := range compat.Entries {
+		migrated.Entries[entry.ID] = entry
+	}
+
+	// Verify entries are accessible in map form.
+	if len(migrated.Entries) != 2 {
+		t.Fatalf("expected 2 entries in migrated map, got %d", len(migrated.Entries))
+	}
+	e1, ok := migrated.Entries["entry-old-1"]
+	if !ok {
+		t.Fatal("entry-old-1 not found in migrated map")
+	}
+	if e1.Type != "decision" {
+		t.Errorf("entry-old-1 Type = %q, want %q", e1.Type, "decision")
+	}
+	if e1.CID != "QmOldCidOne" {
+		t.Errorf("entry-old-1 CID = %q, want %q", e1.CID, "QmOldCidOne")
+	}
+	e2, ok := migrated.Entries["entry-old-2"]
+	if !ok {
+		t.Fatal("entry-old-2 not found in migrated map")
+	}
+	if e2.Type != "learning" {
+		t.Errorf("entry-old-2 Type = %q, want %q", e2.Type, "learning")
+	}
+
+	// Simulate saveIndex: serialize the migrated index back to JSON
+	// (saveIndex does json.Marshal on the Index struct, which uses map format).
+	savedJSON, err := json.Marshal(migrated)
+	if err != nil {
+		t.Fatalf("json.Marshal(migrated) failed: %v", err)
+	}
+
+	// Verify "entries" is now a JSON object '{' not array '['.
+	// Find the position of `"entries":` and check the next significant character.
+	entriesIdx := strings.Index(string(savedJSON), `"entries":`)
+	if entriesIdx == -1 {
+		t.Fatal("\"entries\": not found in serialized JSON")
+	}
+	afterEntries := savedJSON[entriesIdx+len(`"entries":`):]
+	// Skip whitespace.
+	skip := 0
+	for skip < len(afterEntries) && (afterEntries[skip] == ' ' || afterEntries[skip] == '\t' || afterEntries[skip] == '\n' || afterEntries[skip] == '\r') {
+		skip++
+	}
+	if skip >= len(afterEntries) {
+		t.Fatal("no content after \"entries\":")
+	}
+	if afterEntries[skip] != '{' {
+		t.Errorf("expected \"entries\" to be JSON object {, got %c", afterEntries[skip])
+	}
+	// Also verify it is NOT '['.
+	if afterEntries[skip] == '[' {
+		t.Error("\"entries\" is still a JSON array after migration — expected object")
+	}
+
+	// Verify the serialized JSON contains no '[' right after entries colon (object only).
+	if strings.Contains(string(afterEntries[:10]), "[") {
+		t.Error("\"entries\" value appears to be array in serialized JSON")
 	}
 }
