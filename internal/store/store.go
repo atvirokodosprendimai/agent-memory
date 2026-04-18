@@ -52,6 +52,7 @@ type IndexEntry struct {
 	Timestamp      string   `json:"timestamp"`
 	Source         string   `json:"source"`
 	ContentPreview string   `json:"content_preview"`
+	Removed        bool     `json:"removed"`
 }
 
 // Index is the top-level index structure.
@@ -317,6 +318,7 @@ func (s *Store) addToIndex(entry *Entry, cid string) error {
 				Timestamp:      entry.Timestamp,
 				Source:         entry.Source,
 				ContentPreview: preview(entry.Content, 120),
+				Removed:        false,
 			}
 			return s.saveIndex(idx)
 		}
@@ -331,6 +333,7 @@ func (s *Store) addToIndex(entry *Entry, cid string) error {
 		Timestamp:      entry.Timestamp,
 		Source:         entry.Source,
 		ContentPreview: preview(entry.Content, 120),
+		Removed:        false,
 	})
 	idx.Updated = time.Now().UTC().Format(time.RFC3339)
 
