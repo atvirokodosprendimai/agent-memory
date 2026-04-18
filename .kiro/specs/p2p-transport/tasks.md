@@ -104,7 +104,7 @@
   - _Requirements: 14.1_
   - _Boundary: internal/config/config.go_
 
-- [ ] 3.3 Wire P2PClient into store.New() backend selection path
+- [x] 3.3 Wire P2PClient into store.New() backend selection path (committed in 11ec9b3)
   - In store.New: when cfg.P2PEnabled, create p2pclient.NewP2PClient(ctx, secret, cfg.DataDir) and assign to client field
   - Handle context: store.New receives context as first argument (add if not present)
   - P2PClient errors during creation propagate as wrapped errors from store.New
