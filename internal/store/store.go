@@ -57,9 +57,9 @@ type IndexEntry struct {
 
 // Index is the top-level index structure.
 type Index struct {
-	Version int          `json:"version"`
-	Updated string       `json:"updated"`
-	Entries []IndexEntry `json:"entries"`
+	Version int                   `json:"version"`
+	Updated string                `json:"updated"`
+	Entries map[string]IndexEntry `json:"entries"`
 }
 
 // Store manages encrypted memory entries on IPFS.
@@ -138,13 +138,13 @@ func (s *Store) Read(filter Filter) ([]*Entry, error) {
 	}
 
 	var results []*Entry
-	for i := range idx.Entries {
-		if !filter.Match(&idx.Entries[i]) {
+	for _, ie := range idx.Entries {
+		if !filter.Match(&ie) {
 			continue
 		}
-		entry, err := s.getEntry(idx.Entries[i].CID)
+		entry, err := s.getEntry(ie.CID)
 		if err != nil {
-			fmt.Printf("Warning: failed to decrypt entry %s: %v\n", idx.Entries[i].ID, err)
+			fmt.Printf("Warning: failed to decrypt entry %s: %v\n", ie.ID, err)
 			continue
 		}
 		results = append(results, entry)
@@ -200,9 +200,9 @@ func (s *Store) GC(maxAge time.Duration) (int, error) {
 	}
 
 	cutoff := time.Now().UTC().Add(-maxAge)
-	var kept []IndexEntry
 	var removedCIDs []string
 	removed := 0
+	var keysToDelete []string
 
 	for _, ie := range idx.Entries {
 		ts, err := time.Parse(time.RFC3339, ie.Timestamp)
@@ -210,17 +210,18 @@ func (s *Store) GC(maxAge time.Duration) (int, error) {
 			if ie.CID != "" {
 				removedCIDs = append(removedCIDs, ie.CID)
 			}
+			keysToDelete = append(keysToDelete, ie.ID)
 			removed++
-			continue
 		}
-		kept = append(kept, ie)
 	}
 
 	if removed == 0 {
 		return 0, nil
 	}
 
-	idx.Entries = kept
+	for _, key := range keysToDelete {
+		delete(idx.Entries, key)
+	}
 	idx.Updated = time.Now().UTC().Format(time.RFC3339)
 
 	if err := s.saveIndex(idx); err != nil {
@@ -303,29 +304,27 @@ func (s *Store) addToIndex(entry *Entry, cid string) error {
 	idx, err := s.loadIndex()
 	if err != nil {
 		// Start with empty index if none exists
-		idx = &Index{Version: 1, Entries: []IndexEntry{}}
+		idx = &Index{Version: 1, Entries: make(map[string]IndexEntry)}
 	}
 
 	// Check for duplicate ID
-	for i, ie := range idx.Entries {
-		if ie.ID == entry.ID {
-			// Update existing entry
-			idx.Entries[i] = IndexEntry{
-				ID:             entry.ID,
-				CID:            cid,
-				Type:           string(entry.Type),
-				Tags:           entry.Tags,
-				Timestamp:      entry.Timestamp,
-				Source:         entry.Source,
-				ContentPreview: preview(entry.Content, 120),
-				Removed:        false,
-			}
-			return s.saveIndex(idx)
+	if _, exists := idx.Entries[entry.ID]; exists {
+		// Update existing entry
+		idx.Entries[entry.ID] = IndexEntry{
+			ID:             entry.ID,
+			CID:            cid,
+			Type:           string(entry.Type),
+			Tags:           entry.Tags,
+			Timestamp:      entry.Timestamp,
+			Source:         entry.Source,
+			ContentPreview: preview(entry.Content, 120),
+			Removed:        false,
 		}
+		return s.saveIndex(idx)
 	}
 
-	// Append new entry
-	idx.Entries = append(idx.Entries, IndexEntry{
+	// Insert new entry
+	idx.Entries[entry.ID] = IndexEntry{
 		ID:             entry.ID,
 		CID:            cid,
 		Type:           string(entry.Type),
@@ -334,7 +333,7 @@ func (s *Store) addToIndex(entry *Entry, cid string) error {
 		Source:         entry.Source,
 		ContentPreview: preview(entry.Content, 120),
 		Removed:        false,
-	})
+	}
 	idx.Updated = time.Now().UTC().Format(time.RFC3339)
 
 	return s.saveIndex(idx)
@@ -343,7 +342,7 @@ func (s *Store) addToIndex(entry *Entry, cid string) error {
 // loadIndex loads and decrypts the index from IPFS.
 func (s *Store) loadIndex() (*Index, error) {
 	if s.cfg.IndexCID == "" {
-		return &Index{Version: 1, Entries: []IndexEntry{}}, nil
+		return &Index{Version: 1, Entries: make(map[string]IndexEntry)}, nil
 	}
 
 	ciphertext, err := s.ipfs.Get(s.cfg.IndexCID)
