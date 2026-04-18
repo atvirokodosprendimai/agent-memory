@@ -252,8 +252,8 @@ func (s *Store) Pins() (map[string]bool, error) {
 	return s.ipfs.PinLs()
 }
 
-// GC removes entries older than maxAge from the index and unpins them.
-// Returns the number of entries removed.
+// GC tombstones entries older than maxAge and unpins their CIDs.
+// Returns the number of entries tombstoned.
 func (s *Store) GC(maxAge time.Duration) (int, error) {
 	idx, err := s.loadIndex()
 	if err != nil {
@@ -262,31 +262,28 @@ func (s *Store) GC(maxAge time.Duration) (int, error) {
 
 	cutoff := time.Now().UTC().Add(-maxAge)
 	var removedCIDs []string
-	removed := 0
-	var keysToDelete []string
+	tombstoned := 0
 
-	for _, ie := range idx.Entries {
+	for id, ie := range idx.Entries {
 		ts, err := time.Parse(time.RFC3339, ie.Timestamp)
 		if err != nil || ts.Before(cutoff) {
 			if ie.CID != "" {
 				removedCIDs = append(removedCIDs, ie.CID)
 			}
-			keysToDelete = append(keysToDelete, ie.ID)
-			removed++
+			ie.Removed = true
+			idx.Entries[id] = ie
+			tombstoned++
 		}
 	}
 
-	if removed == 0 {
+	if tombstoned == 0 {
 		return 0, nil
 	}
 
-	for _, key := range keysToDelete {
-		delete(idx.Entries, key)
-	}
 	idx.Updated = time.Now().UTC().Format(time.RFC3339)
 
 	if err := s.saveIndex(idx); err != nil {
-		return removed, fmt.Errorf("saving index after GC: %w", err)
+		return tombstoned, fmt.Errorf("saving index after GC: %w", err)
 	}
 
 	var unpinErrs []error
@@ -297,7 +294,7 @@ func (s *Store) GC(maxAge time.Duration) (int, error) {
 		}
 	}
 
-	return removed, nil
+	return tombstoned, nil
 }
 
 // Export returns all decrypted entries matching the filter.
