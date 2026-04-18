@@ -152,7 +152,7 @@
   - _Requirements: 2.1, 2.2, 3.1, 3.2, 5.1, 5.2, 5.3, 7.1_
   - _Boundary: internal/p2p/_
 
-- [ ] 4.5 CID interoperability test
+- [x] 4.5 CID interoperability test
   - Compare CID produced by Add(data) on P2PClient vs KuboClient for same input bytes
   - Both must produce byte-for-byte identical CID (sha2-256, raw multicodec)
   - Observable completion: CID roundtrip test passes; `go test ./internal/p2p/ -run TestCIDInterop` passes
