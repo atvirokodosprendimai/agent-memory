@@ -107,7 +107,7 @@ Usage:
   agent-memory gc                Remove old entries (unpin + rebuild index)
   agent-memory export            Export entries as JSONL
   agent-memory import            Import entries from JSONL
-  agent-memory skill <cmd>       Skill commands (load|unload)
+  agent-memory skill <cmd>       Skill commands (load|unload|tool)
   agent-memory version           Print version
 
 Common flags:

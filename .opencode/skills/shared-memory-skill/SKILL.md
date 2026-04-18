@@ -8,7 +8,7 @@ metadata:
 
 # shared-memory-skill
 
-A skill that allows any OpenAI-compatible LLM client to join a shared memory space by presenting a shared secret. The skill bridges the agent-memory encrypted IPFS backend to the LLM tool-calling interface.
+A skill that allows any LLM client to join a shared encrypted memory space by presenting a shared secret. Works via OpenCode framework handlers (for in-process use) or via CLI (for any agent framework via shell commands).
 
 ## interpret:
   framework: opencode
@@ -20,7 +20,27 @@ A skill that allows any OpenAI-compatible LLM client to join a shared memory spa
   session_initializer: shared_memory.InitSession
   session_closer: shared_memory.CloseSession
 
-## Session Initialization
+## Universal CLI Interface
+
+For any LLM framework that can execute shell commands:
+
+```bash
+# Call a tool (secret passed per-call, no session persistence needed)
+agent-memory skill tool <tool_name> [json_params] --secret <shared_secret>
+
+# Examples:
+agent-memory skill tool memory_session --secret mysecret
+agent-memory skill tool memory_write '{"content": "决策：使用 Go", "type": "decision"}' --secret mysecret
+agent-memory skill tool memory_read '{"type": "decision", "limit": 5}' --secret mysecret
+agent-memory skill tool memory_list '{"tags": ["api"]}' --secret mysecret
+```
+
+### Environment Variables
+- `AGENT_MEMORY_SECRET` — default secret (use `--secret` to override)
+- `AGENT_MEMORY_IPFS_ADDR` — IPFS daemon address (default `http://localhost:5001`)
+- `AGENT_MEMORY_SESSION_ID` — session ID for multi-agent coordination (default `default`)
+
+## OpenCode Framework Usage
 
 ```
 /skill load shared-memory-skill --secret <shared_secret> [--source <source>]

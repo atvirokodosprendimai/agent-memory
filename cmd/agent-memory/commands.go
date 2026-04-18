@@ -510,7 +510,7 @@ func parseSkillFlags(args []string) (subcommand, skillName, secret, source strin
 	secretVal := ""
 	sourceVal := "opencode-agent"
 	rest := args[2:]
-	fs := flag.NewFlagSet("skill", flag.ContinueOnError)
+	fs := flag.NewFlagSet("skill", flag.ExitOnError)
 	fs.StringVar(&secretVal, "secret", "", "Shared secret for skill initialization")
 	fs.StringVar(&sourceVal, "source", "opencode-agent", "Source identifier for this agent")
 	fs.Parse(rest)
@@ -519,37 +519,152 @@ func parseSkillFlags(args []string) (subcommand, skillName, secret, source strin
 
 func runSkill(cfg *config.Config) error {
 	if len(os.Args) < 3 {
-		return fmt.Errorf("usage: agent-memory skill <load|unload> <skill-name> [--secret <secret>] [--source <source>]")
+		return fmt.Errorf("usage: agent-memory skill <load|unload|tool> ...")
 	}
 
-	subcommand, skillName, secret, source := parseSkillFlags(os.Args[2:])
+	subcommand := os.Args[2]
 
 	switch subcommand {
-	case "load":
-		if skillName != "shared-memory-skill" {
-			return fmt.Errorf("unknown skill %q", skillName)
+	case "tool":
+		if len(os.Args) < 4 {
+			return fmt.Errorf("usage: agent-memory skill tool <tool_name> [json_params] [--secret <secret>]")
+		}
+		toolName := os.Args[3]
+		flagArgs := os.Args[4:]
+		paramsJSON, secretVal, sourceVal := parseSkillToolFlags(toolName, flagArgs)
+		return runSkillTool(toolName, paramsJSON, secretVal, sourceVal)
+	case "load", "unload":
+		if len(os.Args) < 4 {
+			return fmt.Errorf("usage: agent-memory skill %s <skill-name> [--secret <secret>]", subcommand)
+		}
+		skillName := os.Args[3]
+		flagArgs := os.Args[4:]
+		secretVal := ""
+		sourceVal := "opencode-agent"
+		for i := 0; i < len(flagArgs); i++ {
+			arg := flagArgs[i]
+			if (arg == "--secret" || arg == "-secret") && i+1 < len(flagArgs) {
+				secretVal = flagArgs[i+1]
+				i++
+			} else if (arg == "--source" || arg == "-source") && i+1 < len(flagArgs) {
+				sourceVal = flagArgs[i+1]
+				i++
+			}
 		}
 		sessionID := os.Getenv("AGENT_MEMORY_SESSION_ID")
 		if sessionID == "" {
 			sessionID = "default"
 		}
-		if err := shared_memory.InitSession(sessionID, secret, source); err != nil {
-			return err
+		if subcommand == "load" {
+			if skillName != "shared-memory-skill" {
+				return fmt.Errorf("unknown skill %q", skillName)
+			}
+			if err := shared_memory.InitSession(sessionID, secretVal, sourceVal); err != nil {
+				return err
+			}
+			fmt.Printf("Skill %q loaded (session=%s).\n", skillName, sessionID)
+			return nil
+		} else {
+			if skillName != "shared-memory-skill" {
+				return fmt.Errorf("unknown skill %q", skillName)
+			}
+			shared_memory.CloseSession(sessionID)
+			fmt.Printf("Skill %q unloaded.\n", skillName)
+			return nil
 		}
-		fmt.Printf("Skill %q loaded (session=%s).\n", skillName, sessionID)
-		return nil
-	case "unload":
-		if skillName != "shared-memory-skill" {
-			return fmt.Errorf("unknown skill %q", skillName)
-		}
-		sessionID := os.Getenv("AGENT_MEMORY_SESSION_ID")
-		if sessionID == "" {
-			sessionID = "default"
-		}
-		shared_memory.CloseSession(sessionID)
-		fmt.Printf("Skill %q unloaded.\n", skillName)
-		return nil
 	default:
-		return fmt.Errorf("unknown skill subcommand %q (use 'load' or 'unload')", subcommand)
+		return fmt.Errorf("unknown skill subcommand %q (use 'load', 'unload', or 'tool')", subcommand)
 	}
+}
+
+func parseSkillToolFlags(toolName string, flagArgs []string) (paramsJSON, secret, source string) {
+	paramsJSON = ""
+	secret = ""
+	source = "opencode-agent"
+	i := 0
+	for i < len(flagArgs) {
+		arg := flagArgs[i]
+		if arg == "--secret" || arg == "-secret" {
+			i++
+			if i < len(flagArgs) {
+				secret = flagArgs[i]
+			}
+		} else if arg == "--source" || arg == "-source" {
+			i++
+			if i < len(flagArgs) {
+				source = flagArgs[i]
+			}
+		} else if arg == "--params" || arg == "-params" {
+			i++
+			if i < len(flagArgs) {
+				paramsJSON = flagArgs[i]
+			}
+		} else if strings.HasPrefix(arg, "--secret=") {
+			secret = arg[len("--secret="):]
+		} else if strings.HasPrefix(arg, "--source=") {
+			source = arg[len("--source="):]
+		} else if strings.HasPrefix(arg, "--params=") {
+			paramsJSON = arg[len("--params="):]
+		} else {
+			paramsJSON = arg
+		}
+		i++
+	}
+	return
+}
+
+func runSkillTool(toolName, paramsJSON, secret, source string) error {
+	if secret == "" {
+		secret = os.Getenv("AGENT_MEMORY_SECRET")
+	}
+	if secret == "" {
+		return fmt.Errorf("--secret <shared_secret> is required (or set AGENT_MEMORY_SECRET env var)")
+	}
+
+	sessionID := os.Getenv("AGENT_MEMORY_SESSION_ID")
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	if err := shared_memory.InitSession(sessionID, secret, source); err != nil {
+		return err
+	}
+	defer shared_memory.CloseSession(sessionID)
+
+	session := shared_memory.GetSession(sessionID)
+
+	var params map[string]any
+	if paramsJSON != "" {
+		if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+			return fmt.Errorf("invalid JSON params: %w", err)
+		}
+	} else {
+		decoder := json.NewDecoder(os.Stdin)
+		decoder.Decode(&params)
+	}
+
+	var result map[string]any
+	var err error
+	switch toolName {
+	case "memory_write":
+		result, err = shared_memory.HandleWrite(params, session)
+	case "memory_read":
+		result, err = shared_memory.HandleRead(params, session)
+	case "memory_list":
+		result, err = shared_memory.HandleList(params, session)
+	case "memory_session":
+		result, err = shared_memory.HandleSession(session)
+	default:
+		return fmt.Errorf("unknown tool %q (valid: memory_write, memory_read, memory_list, memory_session)", toolName)
+	}
+	if err != nil {
+		return fmt.Errorf("tool error: %w", err)
+	}
+
+	out, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("encoding result: %w", err)
+	}
+	os.Stdout.Write(out)
+	return nil
 }
