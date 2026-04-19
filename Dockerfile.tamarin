@@ -1,0 +1,35 @@
+# Tamarin Prover 1.12.0 Docker Image
+# Uses official pre-built binary + bundled Maude
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgmp10 \
+    libffi8 \
+    graphviz \
+    wget \
+    unzip \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Maude 3.5.1
+RUN wget -q https://github.com/maude-lang/Maude/releases/download/Maude3.5.1/Maude-3.5.1-linux-x86_64.zip \
+    && unzip -oj Maude-3.5.1-linux-x86_64.zip -d /usr/local/bin/ \
+    && chmod +x /usr/local/bin/maude \
+    && rm Maude-3.5.1-linux-x86_64.zip
+
+# Download and install Tamarin 1.12.0 pre-built binary
+RUN wget -q https://github.com/tamarin-prover/tamarin-prover/releases/download/1.12.0/tamarin-prover-1.12.0-linux64-ubuntu.tar.gz \
+    && tar -xzf tamarin-prover-1.12.0-linux64-ubuntu.tar.gz -C /usr/local/bin/ \
+    && chmod +x /usr/local/bin/tamarin-prover \
+    && rm tamarin-prover-1.12.0-linux64-ubuntu.tar.gz
+
+WORKDIR /security
+VOLUME ["/security"]
+
+EXPOSE 3001
+
+ENTRYPOINT ["tamarin-prover"]
+CMD ["--help"]
