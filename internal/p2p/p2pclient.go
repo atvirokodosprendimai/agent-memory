@@ -4,6 +4,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -28,13 +29,44 @@ type P2PClient struct {
 	disc  Discovery
 	bs    BitSwap
 	store blockstore.Blockstore
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+// FindPeers discovers peers advertising under the shared secret via DHT.
+// It queries the DHT for the discovery key and returns their address info.
+// This is exposed for diagnostics and testing.
+func (c *P2PClient) FindPeers(ctx context.Context) ([]string, error) {
+	peers, err := c.disc.FindPeers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(peers))
+	for i, p := range peers {
+		ids[i] = p.ID.String()
+	}
+	return ids, nil
+}
+
+// ConnectPeers explicitly calls ConnectToPeers to try to connect to discovered peers.
+// The background reconnect loop calls this periodically, but this can be called
+// explicitly to force a reconnect attempt (e.g., before a Get operation).
+func (c *P2PClient) ConnectPeers(ctx context.Context) error {
+	return c.disc.ConnectToPeers(ctx)
 }
 
 // NewP2PClient creates a P2PClient: starts libp2p host, DHT, bitswap, and connects to peers.
 func NewP2PClient(ctx context.Context, secret, dataDir string) (*P2PClient, error) {
+	// Create a derived context for the client's lifecycle
+	// Cancelled on Close()
+	clientCtx, cancel := context.WithCancel(context.Background())
+
 	// Create the host first
-	h, err := NewHost(ctx, secret, dataDir)
+	h, err := NewHost(clientCtx, secret, dataDir)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("creating host: %w", err)
 	}
 
@@ -42,35 +74,40 @@ func NewP2PClient(ctx context.Context, secret, dataDir string) (*P2PClient, erro
 	disc, err := NewDiscovery(h, secret)
 	if err != nil {
 		h.Close()
+		cancel()
 		return nil, fmt.Errorf("creating discovery: %w", err)
 	}
 
 	// Create blockstore
-	bs, err := NewBadgerBlockstore(ctx, dataDir)
+	bs, err := NewBadgerBlockstore(clientCtx, dataDir)
 	if err != nil {
 		h.Close()
+		cancel()
 		return nil, fmt.Errorf("creating blockstore: %w", err)
 	}
 
 	// Create bitswap
-	bitSwap, err := NewBitSwap(ctx, h.Host(), bs)
+	bitSwap, err := NewBitSwap(clientCtx, h.Host(), bs)
 	if err != nil {
 		bs.Close()
 		h.Close()
+		cancel()
 		return nil, fmt.Errorf("creating bitswap: %w", err)
 	}
 
 	client := &P2PClient{
-		host:  h,
-		disc:  disc,
-		bs:    bitSwap,
-		store: bs,
+		host:   h,
+		disc:   disc,
+		bs:     bitSwap,
+		store:  bs,
+		ctx:    clientCtx,
+		cancel: cancel,
 	}
 
 	// Advertise to DHT with retries (DHT routing table may not be populated yet)
 	var advertiseErr error
 	for i := 0; i < 3; i++ {
-		advertiseErr = disc.Advertise(ctx)
+		advertiseErr = disc.Advertise(clientCtx)
 		if advertiseErr == nil {
 			break
 		}
@@ -81,11 +118,29 @@ func NewP2PClient(ctx context.Context, secret, dataDir string) (*P2PClient, erro
 		// DHT advertise will succeed once routing table is populated
 	}
 
-	// Connect to peers
-	if err := disc.ConnectToPeers(ctx); err != nil {
+	// Connect to peers (initial attempt)
+	if err := disc.ConnectToPeers(clientCtx); err != nil {
 		// Non-fatal: peers may not be available yet
-		// Log but don't fail - other peers can connect to us
+		// Background reconnect loop will keep trying
 	}
+
+	// Start background reconnect loop
+	// This continuously tries to connect to peers as they become available via DHT.
+	// Since both peers run this loop, they will eventually find each other.
+	client.wg.Add(1)
+	go func() {
+		defer client.wg.Done()
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-clientCtx.Done():
+				return
+			case <-ticker.C:
+				_ = disc.ConnectToPeers(clientCtx)
+			}
+		}
+	}()
 
 	return client, nil
 }
@@ -119,6 +174,7 @@ func (c *P2PClient) Add(data []byte) (string, error) {
 
 // Get implements StorageClient.
 // It checks local blockstore first; on miss, fetches via bitswap from peers.
+// Uses a 30-second timeout for the bitswap fetch.
 func (c *P2PClient) Get(cidStr string) ([]byte, error) {
 	ctx := context.Background()
 
@@ -141,8 +197,12 @@ func (c *P2PClient) Get(cidStr string) ([]byte, error) {
 		return blk.RawData(), nil
 	}
 
-	// Miss - fetch from peers via bitswap
-	blk, err := c.bs.GetBlock(ctx, cidObj)
+	// Miss - fetch from peers via bitswap with timeout
+	// If the client is closed (ctx cancelled) or no peers are connected,
+	// the fetch will fail rather than block indefinitely.
+	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	blk, err := c.bs.GetBlock(fetchCtx, cidObj)
 	if err != nil {
 		return nil, fmt.Errorf("getting block from bitswap: %w", err)
 	}
@@ -192,6 +252,14 @@ func (c *P2PClient) PinRm(cidStr string) error {
 // It shuts down all P2P components.
 func (c *P2PClient) Close() error {
 	var errs []error
+
+	// Cancel the client's context to stop the background reconnect goroutine
+	if c.cancel != nil {
+		c.cancel()
+	}
+
+	// Wait for background goroutines to exit
+	c.wg.Wait()
 
 	// Close blockstore
 	if c.store != nil {
