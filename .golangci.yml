@@ -7,10 +7,7 @@ linters:
     - staticcheck
     - unused
     - gosimple
-    - structcheck
-    - varcheck
     - ineffassign
-    - deadcode
     - typecheck
     - govet
     - gofmt
@@ -18,7 +15,6 @@ linters:
     - misspell
     - unconvert
     - unparam
-    - staticwarn
 
 issues:
   max-issues-per-linter: 0
