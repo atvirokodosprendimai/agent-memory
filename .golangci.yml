@@ -3,14 +3,18 @@ run:
   modules-download-mode: readonly
 
 linters-settings:
-  typecheck:
-    enabled: false
-  govet:
-    enabled: false
+  gosimple:
+    checks: ["-all"]
 
 linters:
   disable-all: true
+  enable:
+    - gosimple
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-rules:
+    - path: ".*"
+      linters:
+        - gosimple
