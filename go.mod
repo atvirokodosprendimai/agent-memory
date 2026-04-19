@@ -1,6 +1,6 @@
 module github.com/atvirokodosprendimai/agent-memory
 
-go 1.24
+go 1.25.7
 
 require (
 	github.com/ipfs/boxo v0.37.0
