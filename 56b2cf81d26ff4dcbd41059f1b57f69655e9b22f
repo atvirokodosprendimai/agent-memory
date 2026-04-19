@@ -1,0 +1,64 @@
+.github/workflows/tamarin.yml
+  8b04d1b28d5b51c9 1-48
+.github/workflows/go.yml
+  8b04d1b28d5b51c9 1-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "56b2cf81d26ff4dcbd41059f1b57f69655e9b22f",
+  "prompts": {
+    "447b6732b3f2e108": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_2610a6f79ffeB51M1cobLBndjz",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 76,
+      "overriden_lines": 0
+    },
+    "8394cf801a167f9a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_261098b6bffe1aqhVuJTWhobzU",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 232,
+      "overriden_lines": 0
+    },
+    "8b04d1b28d5b51c9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_262b55c50ffekXaacHx5SAnlsa",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 107,
+      "total_deletions": 0,
+      "accepted_lines": 1970,
+      "overriden_lines": 0
+    },
+    "c7dd459f543dd598": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_262b7a645ffe1h7skqBKgVHiBh",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    }
+  }
+}
