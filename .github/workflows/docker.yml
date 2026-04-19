@@ -72,4 +72,5 @@ jobs:
     steps:
       - name: Run container
         run: |
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest version
+          docker run --rm -e AGENT_MEMORY_DATA_DIR=/tmp/agent-memory ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest init
+          docker run --rm -e AGENT_MEMORY_DATA_DIR=/tmp/agent-memory ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest version
