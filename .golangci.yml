@@ -1,0 +1,25 @@
+linter-options:
+  timeout: 5m
+
+linters:
+  disable:
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+    - structcheck
+    - varcheck
+    - ineffassign
+    - deadcode
+    - typecheck
+    - govet
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+    - staticwarn
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
