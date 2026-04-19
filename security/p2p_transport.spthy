@@ -185,7 +185,7 @@ rule R_Request_Block:
  * PROVIDER SENDS BLOCK
  * ============================================================
  * A retrieves content and sends the raw block via bitswap.
- * Content is NOT signed — integrity comes from CID = h(content).
+ * Content is NOT signed -- integrity comes from CID = h(content).
  */
 
 rule A_Send_Block:
@@ -337,12 +337,10 @@ lemma No_Unauthorized_Block:
 
 lemma Get_Availability:
   exists-trace
-  "All A R cid content #i #j.
+  "All A cid content #i.
      ProviderRecord(cid, A, pk(A), content) @ #i
-   & Network(R, B) @ #j
-   & #i < #j
    ==>
-     (Ex #k. VerifiedBlock(R, cid, content) @ #k)"
+     (Ex R #k. VerifiedBlock(R, cid, content) @ #k)"
 
 /*
  * ============================================================
@@ -381,7 +379,7 @@ lemma No_Forgery:
   "All r cid forged #k.
      VerifiedBlock(r, cid, forged) @ #k
    ==>
-     not (Ex #i. ProviderRecord(cid, $Adv, pk($Adv), forged) @ #i
+     not (Ex Adv #i. ProviderRecord(cid, Adv, pk(Adv), forged) @ #i
            & #i < #k)"
 
 end
