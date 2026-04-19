@@ -1,0 +1,72 @@
+internal/p2p/host.go
+  8b04d1b28d5b51c9 28,43,45,86
+internal/p2p/p2p_integration_test.go
+  8b04d1b28d5b51c9 14,28,34,45,62,64-65,68,74,76,82,94,105,121,142,164
+internal/p2p/p2pclient_test.go
+  8b04d1b28d5b51c9 189,303
+internal/p2p/p2pclient.go
+  8b04d1b28d5b51c9 35-36,39,72,90
+internal/p2p/host_test.go
+  8b04d1b28d5b51c9 16,36,41,47,54,62,69,89,109
+internal/store/store.go
+  8b04d1b28d5b51c9 153,173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "45cbccc68db85afba937986ac646b05c4c312889",
+  "prompts": {
+    "447b6732b3f2e108": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_2610a6f79ffeB51M1cobLBndjz",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 76,
+      "overriden_lines": 0
+    },
+    "8394cf801a167f9a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_261098b6bffe1aqhVuJTWhobzU",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 232,
+      "overriden_lines": 0
+    },
+    "8b04d1b28d5b51c9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_262b55c50ffekXaacHx5SAnlsa",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 581,
+      "total_deletions": 1416,
+      "accepted_lines": 1901,
+      "overriden_lines": 0
+    },
+    "c7dd459f543dd598": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_262b7a645ffe1h7skqBKgVHiBh",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    }
+  }
+}
