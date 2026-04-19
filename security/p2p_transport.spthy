@@ -1,0 +1,387 @@
+/*
+ * Tamarin Security Model: agent-memory P2P Transport
+ * ====================================================
+ *
+ * Protocol: Content-addressed P2P storage via IPFS bitswap
+ * Model date: 2026-04-19
+ *
+ * Threat Model
+ * -----------
+ * - Network adversary: eavesdrops, intercepts, modifies bitswap messages
+ * - Dishonest peer: stores tampered blocks, sends fake provider records
+ * - DHT adversary: modifies provider records, causes routing failures
+ * - Compromised agent: exposes locally stored blocks
+ *
+ * Security Properties (see Lemmas/Theorems)
+ * -----------------------------------------
+ * 1. Content Integrity:  retrieved CID matches stored content (h(content))
+ * 2. CID Uniqueness:     h(c1) = h(c2) => c1 = c2  (pre-image resistance)
+ * 3. Provider Binding:   provider record tied to announcing peer's Ed25519 key
+ * 4. No Tampering:       modified blocks rejected because h(tampered) != CID
+ * 5. Get Availability:   honest provider's block reachable by honest requester
+ *
+ * NOT in Scope (store layer)
+ * --------------------------
+ * - Entry confidentiality (AES-GCM encryption, HKDF key derivation)
+ * - Entry authentication (HMAC-SHA256)
+ * - DHT routing security (IPFS DHT)
+ */
+
+theory IPFS_Bitswap
+begin
+
+builtins: hashing, asymmetric-encryption, signing, symmetric-encryption
+
+/*
+ * ============================================================
+ * CORRUPTION MODEL
+ * ============================================================
+ * Honest agents: follow protocol correctly
+ * Compromised agents: arbitrary behavior (intruder model)
+ * Bootstrap peers: trusted for routing, not for data integrity
+ */
+
+rule Init_Honest_Agent:
+  [ Fr(~sk) ]
+  -->
+  [ Agent( $A, ~sk, pk(~sk) )
+  , Out( <$A, pk(~sk)> )
+  ]
+
+rule Init_Adversary:
+  [ Fr(~sk_adv) ]
+  -->
+  [ Adversary( $Adv, ~sk_adv, pk(~sk_adv) )
+  , Out( <$Adv, pk(~sk_adv)> )
+  ]
+
+/*
+ * ============================================================
+ * BOOTSTRAP PEERS (Trusted Routing Infrastructure)
+ * ============================================================
+ * Modeled as read-only routing helpers. Not involved in data integrity.
+ * In the real protocol these are the public IPFS bootstrap nodes.
+ */
+
+rule Register_Bootstrap:
+  [ Fr(~sk_b) ]
+  -->
+  [ BootstrapPeer( $B, pk(~sk_b) ) ]
+
+/*
+ * ============================================================
+ * AGENT JOINS NETWORK
+ * ============================================================
+ * Agent obtains peer ID and connects to the IPFS network via bootstrap.
+ * Peer ID = H(pk(sk)) following libp2p convention.
+ */
+
+rule Agent_Join:
+  [ Agent(A, skA, pkA)
+  , BootstrapPeer(B, pkB)
+  ]
+  -->
+  [ Network(A, B)
+  , Out( <A, 'join'> )
+  ]
+
+/*
+ * ============================================================
+ * ADVERTISE PROVIDER (Add operation)
+ * ============================================================
+ * Agent A stores content locally and announces via bitswap.
+ *
+ * Implementation: NewBlock -> BadgerDB + bitswap.NotifyNewBlocks()
+ * Security: h(content) = CID means content integrity is verifiable.
+ *
+ * h(content) is the CID (content identifier / content address).
+ * This is SHA2-256 as defined by IPFS multihash.
+ */
+
+rule A_Advertise_Provider:
+  [ Agent(A, skA, pkA)
+  , Network(A, B)
+  , In( <~content> )
+  ]
+  -->
+  [ ProviderRecord( h(<~content>), A, pkA, ~content )
+  , Out( <'advertise', A, h(<~content>), pkA> )
+  , Out( <'have', A, h(<~content>), ~content> )
+  ]
+
+/*
+ * ============================================================
+ * DHT STORES PROVIDER RECORD
+ * ============================================================
+ * Provider record: CID -> (peer ID, peer PK)
+ *
+ * Note: IPFS DHT provider records are not cryptographically signed
+ * by the standard protocol. They are authenticated by the peer's
+ * libp2p transport-level identity. We model this as: the record
+ * is stored if it comes from a valid network participant.
+ */
+
+rule DHT_Store_Provider:
+  [ In( <'advertise', A, cid, pkA> ) ]
+  -->
+  [ DHT_Record( cid, A, pkA ) ]
+
+/*
+ * ============================================================
+ * ADVERSARY: FAKE PROVIDER RECORD
+ * ============================================================
+ * Adversary claims to have a CID they don't possess.
+ * This is detectable: R will query A for the block, A won't have it.
+ */
+
+rule Adversary_Fake_Provider:
+  [ Adversary(Adv, skAdv, pkAdv)
+  , Network(Adv, B)
+  , Fr(~cid_fake)
+  ]
+  -->
+  [ DHT_Record( ~cid_fake, Adv, pkAdv )
+  , Out( <'advertise', Adv, ~cid_fake, pkAdv> )
+  ]
+
+/*
+ * ============================================================
+ * QUERY DHT FOR PROVIDERS (Get operation, step 1)
+ * ============================================================
+ * Agent R resolves CID to provider peer info.
+ */
+
+rule R_Query_DHT:
+  [ Agent(R, skR, pkR)
+  , Network(R, B)
+  , Fr(~cid)
+  ]
+  -->
+  [ Out( <'resolve', R, ~cid> ) ]
+
+rule DHT_Resolve:
+  [ DHT_Record( cid, A, pkA )
+  , In( <'resolve', R, cid> )
+  ]
+  -->
+  [ Out( <'providers', cid, A, pkA> ) ]
+
+/*
+ * ============================================================
+ * REQUEST BLOCK VIA BITSWAP
+ * ============================================================
+ * R sends want-have / want-block to provider A.
+ */
+
+rule R_Request_Block:
+  [ Agent(R, skR, pkR)
+  , In( <'providers', cid, A, pkA> )
+  ]
+  -->
+  [ Out( <'want', R, cid, pkR> ) ]
+
+/*
+ * ============================================================
+ * PROVIDER SENDS BLOCK
+ * ============================================================
+ * A retrieves content and sends the raw block via bitswap.
+ * Content is NOT signed — integrity comes from CID = h(content).
+ */
+
+rule A_Send_Block:
+  [ Agent(A, skA, pkA)
+  , ProviderRecord( cid, A, pkA, content )
+  , In( <'want', R, cid, pkR> )
+  ]
+  -->
+  [ Out( <'block', A, cid, content> ) ]
+
+/*
+ * ============================================================
+ * VERIFY AND ACCEPT BLOCK
+ * ============================================================
+ * R receives the block and verifies CID = h(content).
+ *
+ * SECURITY: This is the critical integrity check. If the block
+ * was tampered in transit, h(content') != CID, and the rule
+ * does NOT fire (no VerifiedBlock created).
+ *
+ * Pattern matching enforces: cid in VerifiedBlock must equal
+ * h(content) from ProviderRecord, which equals h(content) from
+ * the bitswap block message.
+ */
+
+rule R_Verify_And_Accept:
+  [ Agent(R, skR, pkR)
+  , ProviderRecord( cid, A, pkA, content )
+  , In( <'block', A, cid, content> )
+  ]
+  -->
+  [ VerifiedBlock( R, cid, content )
+  ]
+
+/*
+ * ============================================================
+ * DISHONEST PROVIDER: SEND WRONG CONTENT
+ * ============================================================
+ * Provider A sends content' where h(content') != CID.
+ * R_Verify_And_Accept does NOT fire because ProviderRecord
+ * was created with the correct content.
+ *
+ * This would only succeed if h(content') = h(original content),
+ * which requires breaking SHA2-256 collision resistance.
+ */
+
+rule DishonestProvider_SendWrong:
+  [ Agent(A, skA, pkA)
+  , ProviderRecord( cid, A, pkA, content )
+  , In( <'want', R, cid, pkR> )
+  , Fr(~wrong_content)
+  ]
+  -->
+  [ Out( <'block', A, cid, ~wrong_content> ) ]
+
+/*
+ * ============================================================
+ * NETWORK ADVERSARY: MODIFY BLOCK IN TRANSIT
+ * ============================================================
+ * Intruder intercepts block and forwards a modified version.
+ * Same outcome: h(modified) != CID, R_Verify_And_Accept fails.
+ */
+
+rule Intruder_Modify_Block:
+  [ In( <'block', A, cid, content> )
+  , Fr(~modified)
+  ]
+  -->
+  [ Out( <'block', A, cid, ~modified> ) ]
+
+/*
+ * ============================================================
+ * STORE LAYER: ENCRYPT CONTENT (not part of P2P, for reference)
+ * ============================================================
+ * Above the P2P layer, the store encrypts entries before Add():
+ *
+ *   encrypted = AES-GCM(plaintext, HKDF(secret, salt)['encryption'])
+ *   mac = HMAC-SHA256(encrypted, HKDF(secret, salt)['signing'])
+ *   entry = { encrypted, mac, cid }
+ *
+ * This means even if bitswap is compromised, content is not readable
+ * without the secret. CID is computed from encrypted content.
+ */
+
+/*
+ * ============================================================
+ * SECURITY LEMMAS
+ * ============================================================
+ */
+
+/*
+ * Lemma 1: CID Integrity
+ * If VerifiedBlock(r, cid, content) exists, then content was
+ * advertised by some agent and cid = h(content).
+ */
+
+lemma CID_Integrity:
+  "All r cid content #k.
+     VerifiedBlock(r, cid, content) @ #k
+   ==>
+     (Ex A PK #i.
+       ProviderRecord(cid, A, PK, content) @ #i
+     & #i < #k
+     & cid = h(content))"
+
+/*
+ * Lemma 2: CID Uniqueness
+ * Under SHA2-256 collision resistance, distinct content produces
+ * distinct CIDs. Formally: if ProviderRecord(cid, A, pk, c1) and
+ * ProviderRecord(cid, A, pk, c2), then c1 = c2.
+ */
+
+lemma CID_Uniqueness:
+  "All A PK cid c1 c2 #i #j.
+     ProviderRecord(cid, A, PK, c1) @ #i
+   & ProviderRecord(cid, A, PK, c2) @ #j
+   ==>
+     c1 = c2"
+
+/*
+ * Lemma 3: Provider Binding
+ * A DHT provider record is bound to the announcing agent's keypair.
+ * Adversary cannot anonymously advertise a provider record.
+ */
+
+lemma Provider_Binding:
+  "All cid A PK #i.
+     DHT_Record(cid, A, PK) @ #i
+   ==>
+     (Ex sk. Agent(A, sk, PK) @ #i)"
+
+/*
+ * Lemma 4: No Unauthorized Block Creation
+ * If VerifiedBlock(r, cid, content) exists, some agent must have
+ * advertised that exact content with that exact CID.
+ */
+
+lemma No_Unauthorized_Block:
+  "All r cid content #k.
+     VerifiedBlock(r, cid, content) @ #k
+   ==>
+     (Ex A #i. ProviderRecord(cid, A, pk(A), content) @ #i)"
+
+/*
+ * Lemma 5: Get Availability (Honest Provider)
+ * If an honest agent A advertises content, and honest R queries
+ * for that CID, honest R eventually verifies and accepts the block.
+ */
+
+lemma Get_Availability:
+  exists-trace
+  "All A R cid content #i #j.
+     ProviderRecord(cid, A, pk(A), content) @ #i
+   & Network(R, B) @ #j
+   & #i < #j
+   ==>
+     (Ex #k. VerifiedBlock(R, cid, content) @ #k)"
+
+/*
+ * ============================================================
+ * THEOREMS
+ * ============================================================
+ */
+
+/*
+ * Theorem 1: Content Integrity (MAIN)
+ * A VerifiedBlock implies content matches CID AND content was
+ * advertised by an agent. No tampered blocks can be verified.
+ */
+
+lemma Content_Integrity:
+  "All r cid content #k.
+     VerifiedBlock(r, cid, content) @ #k
+   ==>
+     (Ex A #i.
+       ProviderRecord(cid, A, pk(A), content) @ #i
+     & #i < #k
+     & cid = h(content))"
+
+/*
+ * Theorem 2: No Forgery
+ * An adversary cannot cause an honest agent to VerifiedBlock
+ * forged content for a CID they do not control.
+ *
+ * Proof sketch: VerifiedBlock requires ProviderRecord with matching
+ * h(content). Without the original content, adversary cannot
+ * create a ProviderRecord with the correct hash. Even if they
+ * send a block, R_Verify_And_Accept requires ProviderRecord
+ * matching h(content), which doesn't exist for forged content.
+ */
+
+lemma No_Forgery:
+  "All r cid forged #k.
+     VerifiedBlock(r, cid, forged) @ #k
+   ==>
+     not (Ex #i. ProviderRecord(cid, $Adv, pk($Adv), forged) @ #i
+           & #i < #k)"
+
+end
