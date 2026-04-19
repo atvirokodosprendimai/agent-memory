@@ -1,20 +1,18 @@
-linter-options:
+run:
   timeout: 5m
+  modules-download-mode: readonly
+
+linters-settings:
+  typecheck:
+    enabled: false
+  govet:
+    enabled: false
 
 linters:
-  disable:
-    - errcheck
-    - staticcheck
-    - unused
+  disable-all: true
+  enable:
     - gosimple
-    - ineffassign
-    - typecheck
-    - govet
-    - gofmt
-    - goimports
-    - misspell
-    - unconvert
-    - unparam
+    - staticcheck
 
 issues:
   max-issues-per-linter: 0
