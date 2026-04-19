@@ -72,4 +72,4 @@ jobs:
     steps:
       - name: Run container
         run: |
-          docker run --rm -v /tmp/agent-memory-test:/root/.config/agent-memory ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest --help
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest version
