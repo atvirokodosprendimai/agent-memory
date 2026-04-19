@@ -30,7 +30,6 @@ func TestCIDInterop_AddMatchesKubo(t *testing.T) {
 	}()
 
 	// Create P2PClient with mocked network but real blockstore
-	mockedDisc := &mockP2PDiscovery{}
 	mockedHost := &mockP2PHost{idVal: peer.ID("testpeer")}
 	mockedBitSwap := &mockP2PBitSwap{
 		notifyNewBlocksFn: func(ctx context.Context, blks ...blocks.Block) error {
@@ -40,7 +39,6 @@ func TestCIDInterop_AddMatchesKubo(t *testing.T) {
 
 	c := &P2PClient{
 		host:  mockedHost,
-		disc:  mockedDisc,
 		bs:    mockedBitSwap,
 		store: bs,
 	}

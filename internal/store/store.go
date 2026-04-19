@@ -150,7 +150,7 @@ func New(cfg *config.Config, secret string) (*Store, error) {
 
 	var client StorageClient
 	if cfg.P2PEnabled {
-		client, err = p2p_pkg.NewP2PClient(context.Background(), secret, cfg.DataDir)
+		client, err = p2p_pkg.NewP2PClient(context.Background(), cfg.DataDir)
 		if err != nil {
 			return nil, fmt.Errorf("creating P2P client: %w", err)
 		}
@@ -170,7 +170,7 @@ func NewWithP2P(ctx context.Context, cfg *config.Config, secret string) (*Store,
 		return nil, fmt.Errorf("deriving keys: %w", err)
 	}
 
-	client, err := p2p_pkg.NewP2PClient(ctx, secret, cfg.DataDir)
+	client, err := p2p_pkg.NewP2PClient(ctx, cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("creating P2P client: %w", err)
 	}
