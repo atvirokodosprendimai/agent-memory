@@ -1,0 +1,22 @@
+{
+  "feature_name": "leak-first-reframe",
+  "created_at": "2026-04-24T00:00:00Z",
+  "updated_at": "2026-04-24T00:00:00Z",
+  "language": "en",
+  "phase": "brief",
+  "ready_for_implementation": false,
+  "approvals": {
+    "requirements": {
+      "generated": false,
+      "approved": false
+    },
+    "design": {
+      "generated": false,
+      "approved": false
+    },
+    "tasks": {
+      "generated": false,
+      "approved": false
+    }
+  }
+}
