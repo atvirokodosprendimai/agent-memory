@@ -1,3 +1,5 @@
+> **ARCHIVED 2026-08-26 — superseded.** Active development moved to **[agentsmemory](https://github.com/atvirokodosprendimai/agentsmemory)** — the multi-tenant memory palace for AI agents over MCP. This repository is frozen as a historical record and is read-only.
+
 # agent-memory
 
 > E2E encrypted agent memory on IPFS — portable, decentralized knowledge persistence
